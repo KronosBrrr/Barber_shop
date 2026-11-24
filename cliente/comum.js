@@ -65,8 +65,25 @@ function avisar(texto) {
 
 function mostrarTela(id) {
   document.querySelectorAll(".tela").forEach((t) => (t.hidden = t.id !== id));
+  // o botão de tema flutuante só aparece nas telas sem barra no topo (login, sucesso)
+  const flutuante = document.querySelector(".tema-flutuante");
+  if (flutuante) flutuante.hidden = !document.getElementById(id)?.classList.contains("tela-login");
   window.scrollTo(0, 0);
 }
+
+// ===== Modo claro / escuro =====
+// O padrão é o escuro (preto e dourado). A escolha fica salva neste aparelho.
+function temaAtual() {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+function trocarTema() {
+  const novo = temaAtual() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = novo;
+  salvar("tema", novo);
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-tema]")) trocarTema();
+});
 
 // ===== Regras da agenda =====
 function lojaAbertaNoDia(d) {
@@ -80,7 +97,7 @@ function barbeiroTrabalha(b, d) {
 
 function ocupadoEm(lista, barbeiroId, dia, inicio, duracao, ignorarId) {
   return lista.some((a) => {
-    if (a.id === ignorarId || a.status === "cancelado" || a.barbeiroId !== barbeiroId || a.dia !== dia) return false;
+    if ((ignorarId != null && a.id === ignorarId) || a.status === "cancelado" || a.barbeiroId !== barbeiroId || a.dia !== dia) return false;
     const ai = paraMin(a.hora);
     return inicio < ai + a.duracao && ai < inicio + duracao;
   });

@@ -44,7 +44,20 @@ async function enviar(metodo, caminho, corpo, mensagem) {
 
 const salvarConfig = () => enviar("PUT", "/api/dono/config", {
   servicos: CONFIG.servicos, barbeiros: CONFIG.barbeiros, produtos: CONFIG.produtos, funcionamento: CONFIG.funcionamento,
+  pagamentos: { chavePix: CONFIG.pagamentos.chavePix || "", recebedor: CONFIG.pagamentos.recebedor || "", cidade: CONFIG.pagamentos.cidade || "" },
 });
+
+// Situação do pagamento de um agendamento, para mostrar na agenda
+function seloPagamento(a) {
+  if (a.status === "cancelado" && a.pago && a.pagamento === "Pix") return `<span class="pg devolver">⚠ devolver Pix ao cliente</span>`;
+  if (a.status !== "confirmado") return "";
+  return {
+    pago: `<span class="pg pago">✓ Pago${a.pagamentoDetalhe ? ` · ${esc(a.pagamentoDetalhe)}` : ""}</span>`,
+    pix_aguardando: `<span class="pg pix_aguardando">⚡ Pix aguardando confirmação</span>`,
+    pendente: `<span class="pg pendente">Pagamento pendente</span>`,
+    na_barbearia: `<span class="pg na_barbearia">Paga na barbearia</span>`,
+  }[a.pagamentoStatus] || "";
+}
 
 // ================= Utilitários =================
 const hojeIso = () => chaveDia(new Date());
@@ -232,7 +245,8 @@ function chipsProdutos(a) {
 
 function linhaAg(a, comData) {
   const acoes = a.status === "confirmado"
-    ? `<button class="btn-peq verde" data-acao="atender" data-id="${a.id}">✓ Atendido</button>
+    ? `${a.pagamentoStatus === "pix_aguardando" ? `<button class="btn-peq ouro" data-acao="confirmarPix" data-id="${a.id}">⚡ Pix recebido</button>` : ""}
+       <button class="btn-peq verde" data-acao="atender" data-id="${a.id}">✓ Atendido</button>
        <button class="btn-peq" data-acao="transferir" data-id="${a.id}">Trocar barbeiro</button>
        <button class="btn-peq vermelho" data-acao="faltou" data-id="${a.id}">Faltou</button>
        <button class="btn-peq vermelho" data-acao="cancelarAg" data-id="${a.id}">Cancelar</button>`
@@ -244,7 +258,7 @@ function linhaAg(a, comData) {
       <div><strong>${esc(a.cliente)}</strong> <span class="sub">· ${esc(a.servico)} com ${esc(a.barbeiro)}</span></div>
       ${chipsProdutos(a)}
       ${a.obs ? `<p class="sub">📝 ${esc(a.obs)}</p>` : ""}
-      <p class="sub">${esc(a.pagamento || "—")} · ${real(totalAg(a))}${a.telefone ? ` · ${linkZap(a.telefone)}` : ""}${a.origem === "balcao" ? " · balcão" : ""}${foraDoHorario(a) ? ` · <span style="color:var(--perigo)">⚠ fora do horário</span>` : ""}</p>
+      <p class="sub">${seloPagamento(a)} ${esc(a.pagamento || "—")} · ${real(totalAg(a))}${a.telefone ? ` · ${linkZap(a.telefone)}` : ""}${a.origem === "balcao" ? " · balcão" : ""}${foraDoHorario(a) ? ` · <span style="color:var(--perigo)">⚠ fora do horário</span>` : ""}</p>
     </div>
     <div class="ag-acoes">${acoes}</div>
   </div>`;
@@ -272,7 +286,7 @@ function renderPainel() {
   $("conteudo").innerHTML = `
     <div class="cab">
       <div>
-        <h1>Bom dia de trabalho! 💈</h1>
+        <h1>${["Boa noite", "Bom dia", "Boa tarde", "Boa noite"][Math.floor(new Date().getHours() / 6)]}! 💈</h1>
         <p class="sub">${dataBonita(hoje)} · ${lojaAbertaNoDia(new Date()) ? `aberto das ${cfgHoje.abre} às ${cfgHoje.fecha}` : "barbearia fechada hoje"}</p>
       </div>
       <div class="acoes"><button class="btn-peq ouro" data-acao="novoAg">+ Agendamento no balcão</button></div>
@@ -396,7 +410,7 @@ MUDAR.agStatus = (el) => { fAg.status = el.value; renderAgenda(); };
 // ---- Marcar como atendido (e receber o pagamento)
 ACOES.atender = (id) => {
   const a = agPorId(id), b = barbeiro(a.barbeiroId);
-  const jaPago = a.pagamento && a.pagamento !== "Pagar na barbearia";
+  const jaPago = a.pago;
   const comissao = b ? calcComissao(a, b) : 0;
   abrirModal({
     titulo: "Confirmar atendimento",
@@ -410,7 +424,7 @@ ACOES.atender = (id) => {
         <span class="sub">Comissão de ${esc(a.barbeiro)}: ${real(comissao)}</span>
       </div>
       ${jaPago
-        ? `<p class="sub">✓ Cliente escolheu pagar pelo app (${esc(a.pagamento)}).</p>`
+        ? `<p class="sub">✓ Já pago pelo app (${esc(a.pagamento)}${a.pagamentoDetalhe ? ` · ${esc(a.pagamentoDetalhe)}` : ""}).</p>`
         : `<label>Como o cliente pagou?
              <select name="forma" required>
                ${["Dinheiro", "Pix", "Cartão de débito", "Cartão de crédito"].map((f) => `<option>${f}</option>`).join("")}
@@ -421,6 +435,17 @@ ACOES.atender = (id) => {
       enviar("POST", `/api/dono/agendamentos/${a.id}/atender`, { forma: fd.get("forma") }, `Atendimento de ${a.cliente} confirmado.`);
     },
   });
+};
+
+ACOES.confirmarPix = (id) => {
+  const a = agPorId(id);
+  if (!confirm(`Confirma que o Pix de ${real(totalAg(a))} de ${a.cliente} caiu na conta?\n\nConfira no app do banco antes.`)) return;
+  enviar("POST", `/api/dono/agendamentos/${a.id}/confirmar-pix`, {}, "Pix confirmado. O cliente já vê o pedido como pago.");
+};
+
+ACOES.salvarPix = () => {
+  Object.assign(CONFIG.pagamentos, { chavePix: $("pixChave").value.trim(), recebedor: $("pixRecebedor").value.trim(), cidade: $("pixCidade").value.trim() });
+  salvarConfig().then((ok) => ok && avisar("Dados do Pix salvos."));
 };
 
 ACOES.faltou = (id) => {
@@ -848,6 +873,20 @@ function renderHorarios() {
 
   $("conteudo").innerHTML = `
     <div class="cab"><h1>Funcionamento</h1></div>
+
+    <div class="bloco">
+      <h2>💰 Pagamentos dos clientes</h2>
+      <p class="sub" style="margin-bottom:12px">O QR code do Pix é gerado com esta chave, então o dinheiro cai direto na conta dela.
+        ${CONFIG.pagamentos.chavePix === "123e4567-e89b-12d3-a456-426614174000" ? `<br><strong style="color:var(--perigo)">⚠ Esta é uma chave de exemplo. Troque pela chave Pix real da barbearia.</strong>` : ""}</p>
+      <div class="form-linha">
+        <label>Chave Pix<input id="pixChave" value="${esc(CONFIG.pagamentos.chavePix || "")}" placeholder="CPF, CNPJ, e-mail, +55 telefone ou aleatória"></label>
+        <label>Nome do recebedor<input id="pixRecebedor" maxlength="25" value="${esc(CONFIG.pagamentos.recebedor || "")}"></label>
+        <label>Cidade<input id="pixCidade" maxlength="15" value="${esc(CONFIG.pagamentos.cidade || "")}"></label>
+        <button class="btn-principal" data-acao="salvarPix">Salvar</button>
+      </div>
+      <p class="sub" style="margin-top:12px">💳 Cartão: <strong>${CONFIG.pagamentos.modoCartao === "teste" ? "modo de teste (não cobra de verdade)" : "ativo"}</strong>.
+        Para cobrar de verdade é preciso contratar uma maquininha online (Mercado Pago, PagSeguro, Stone...). Veja <strong>servidor/pagamentos.py</strong>.</p>
+    </div>
 
     <div class="bloco">
       <h2>Dias e horários da semana</h2>

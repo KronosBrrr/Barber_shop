@@ -134,10 +134,15 @@ function renderInicio() {
           </div>
           ${linhaProdutos(a)}
           <div class="pedido-rodape">
-            <span class="sub">${esc(a.pagamento)} · <strong class="valor">${real(a.total)}</strong></span>
-            ${st === "agendado"
-              ? `<button class="btn-texto perigo" data-cancelar="${a.id}">Cancelar</button>`
-              : `<button class="btn-texto" data-repetir="${a.id}">↻ Agendar de novo</button>`}
+            <span class="sub">${esc(a.pagamento)}${a.pagamentoDetalhe ? ` · ${esc(a.pagamentoDetalhe)}` : ""} · <strong class="valor">${real(a.total)}</strong>
+              ${st === "agendado" ? etiquetaPagamento(a) : ""}</span>
+            <div class="acoes-pedido">
+              ${st === "agendado"
+                ? `${["pendente", "pix_aguardando"].includes(a.pagamentoStatus)
+                      ? `<button class="btn-texto" data-pagar="${a.id}">${a.pagamentoStatus === "pix_aguardando" ? "⚡ Ver Pix" : "💳 Pagar agora"}</button>` : ""}
+                   <button class="btn-texto perigo" data-cancelar="${a.id}">Cancelar</button>`
+                : `<button class="btn-texto" data-repetir="${a.id}">↻ Agendar de novo</button>`}
+            </div>
           </div>
         </div>`;
       }).join("");
@@ -146,17 +151,32 @@ function renderInicio() {
     b.addEventListener("click", async () => {
       if (!confirm("Deseja cancelar este agendamento?")) return;
       try {
-        await api("POST", `/api/agendamentos/${b.dataset.cancelar}/cancelar`, {}, token);
+        const r = await api("POST", `/api/agendamentos/${b.dataset.cancelar}/cancelar`, {}, token);
         await carregarMeusDados();
         renderInicio();
-        avisar("Agendamento cancelado.");
+        avisar(r.mensagem ? `Cancelado. ${r.mensagem}` : "Agendamento cancelado.");
       } catch (e) { tratarErro(e); }
+    }));
+  $("historico").querySelectorAll("[data-pagar]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const a = agendamentos.find((x) => x.id === Number(b.dataset.pagar));
+      abrirPagamento(a, metodoDe(a.pagamento));
     }));
   $("historico").querySelectorAll("[data-repetir]").forEach((b) =>
     b.addEventListener("click", () => repetir(agendamentos.find((a) => a.id === Number(b.dataset.repetir)))));
 }
 
+function etiquetaPagamento(a) {
+  return {
+    pago: `<span class="status pago">✓ Pago</span>`,
+    pix_aguardando: `<span class="status aguardando">Pix em confirmação</span>`,
+    pendente: `<span class="status pendente">Pagamento pendente</span>`,
+  }[a.pagamentoStatus] || "";
+}
+
 $("btnAgendar").addEventListener("click", () => iniciarAgendamento());
+$("navAgendar").addEventListener("click", () => iniciarAgendamento());
+$("navPedidos").addEventListener("click", () => $("tituloPedidos").scrollIntoView({ behavior: "smooth" }));
 
 // ================= Agendamento passo a passo =================
 const PASSOS = ["Serviço", "Barbeiro", "Horário", "Produtos", "Confirmar"];
@@ -164,7 +184,8 @@ let passo = 0;
 let pedido;
 
 function novoPedido() {
-  return { servico: null, barbeiro: null, dia: null, hora: null, produtos: {}, pagamento: "Pix", obs: "" };
+  return { servico: null, barbeiro: null, dia: null, hora: null, produtos: {},
+    pagamento: CONFIG.pagamentos?.pixAtivo === false ? "Cartão de crédito" : "Pix", obs: "" };
 }
 
 async function iniciarAgendamento(base) {
@@ -236,7 +257,7 @@ function renderPasso() {
   $("totalParcial").textContent = real(totalPedido());
   $("btnAnterior").textContent = passo === 0 ? "Cancelar" : "Voltar";
   $("btnProximo").textContent =
-    passo === PASSOS.length - 1 ? "Confirmar agendamento"
+    passo === PASSOS.length - 1 ? textoConfirmar()
     : passo === 3 && Object.keys(pedido.produtos).length === 0 ? "Pular" : "Continuar";
   $("btnProximo").disabled = !passoValido();
   window.scrollTo(0, 0);
@@ -391,18 +412,26 @@ function passoConfirmar() {
     </div>
 
     <div class="form">
-      <label>Forma de pagamento
-        <select id="selPagamento">
-          ${["Pix", "Cartão de crédito", "Cartão de débito", "Pagar na barbearia"].map((f) =>
-            `<option ${pedido.pagamento === f ? "selected" : ""}>${f}</option>`).join("")}
-        </select>
-      </label>
+      <div>
+        <p class="sub" style="margin-bottom:8px">Forma de pagamento</p>
+        <div class="formas">
+          ${FORMAS_PAGAMENTO.filter(([v]) => v !== "Pix" || CONFIG.pagamentos?.pixAtivo !== false).map(([v, ic, titulo, desc]) => `
+            <button type="button" class="forma ${pedido.pagamento === v ? "selecionado" : ""}" data-forma="${v}">
+              <span class="icone">${ic}</span><span>${titulo}<small>${desc}</small></span>
+            </button>`).join("")}
+        </div>
+      </div>
       <label>Observação para o barbeiro (opcional)
         <textarea id="txtObs" rows="2" placeholder="Ex.: degradê baixo, não tirar o comprimento em cima">${esc(pedido.obs)}</textarea>
       </label>
     </div>`;
 
-  $("selPagamento").addEventListener("change", (e) => (pedido.pagamento = e.target.value));
+  $("conteudoPasso").querySelectorAll("[data-forma]").forEach((el) =>
+    el.addEventListener("click", () => {
+      pedido.pagamento = el.dataset.forma;
+      $("conteudoPasso").querySelectorAll("[data-forma]").forEach((x) => x.classList.toggle("selecionado", x === el));
+      $("btnProximo").textContent = textoConfirmar();
+    }));
   $("txtObs").addEventListener("input", (e) => (pedido.obs = e.target.value));
   $("conteudoPasso").querySelectorAll("[data-ir]").forEach((el) =>
     el.addEventListener("click", () => { passo = Number(el.dataset.ir); renderPasso(); }));
@@ -433,15 +462,169 @@ async function confirmar() {
     }
     return;
   }
-  const novo = criado;
+  if (criado.pagamento === "Pagar na barbearia") {
+    mostrarSucesso(criado, "Agendamento confirmado!", `<p class="sub">Pagamento na barbearia · Total ${real(criado.total)}</p>`);
+  } else {
+    abrirPagamento(criado, metodoDe(criado.pagamento));
+  }
+}
 
+function mostrarSucesso(a, titulo, linhaPagamento) {
+  $("tituloSucesso").textContent = titulo;
   $("detalheSucesso").innerHTML = `
-    <p><strong>${esc(novo.servico)}</strong> com ${esc(novo.barbeiro)}</p>
-    <p>${dataBonita(dia)} às <strong>${hora}</strong></p>
-    ${novo.produtos.length ? `<p class="entrega">🎁 ${novo.produtos.reduce((s, p) => s + p.qtd, 0)} produto(s) serão entregues no seu atendimento</p>` : ""}
-    <p class="sub">${esc(novo.pagamento)} · Total ${real(novo.total)}</p>`;
+    <p><strong>${esc(a.servico)}</strong> com ${esc(a.barbeiro)}</p>
+    <p>${dataBonita(a.dia)} às <strong>${a.hora}</strong></p>
+    ${a.produtos.length ? `<p class="entrega">🎁 ${a.produtos.reduce((s, p) => s + p.qtd, 0)} produto(s) serão entregues no seu atendimento</p>` : ""}
+    ${linhaPagamento}`;
   mostrarTela("telaSucesso");
 }
+
+// ================= Pagamento (Pix e cartão) =================
+const FORMAS_PAGAMENTO = [
+  ["Pix", "⚡", "Pix", "QR code na hora"],
+  ["Cartão de crédito", "💳", "Crédito", "em até 3x sem juros"],
+  ["Cartão de débito", "💳", "Débito", "à vista"],
+  ["Pagar na barbearia", "🏪", "Na barbearia", "no dia do atendimento"],
+];
+const metodoDe = (forma) => (forma === "Cartão de crédito" ? "credito" : forma === "Cartão de débito" ? "debito" : "pix");
+const textoConfirmar = () => (pedido?.pagamento === "Pagar na barbearia" ? "Confirmar agendamento" : "Confirmar e pagar");
+
+let pagando = null;   // agendamento que está sendo pago
+let metodoPag = "pix";
+
+function abrirPagamento(a, metodo) {
+  pagando = a;
+  const pixOk = CONFIG.pagamentos?.pixAtivo !== false;
+  if (metodo === "pix" && !pixOk) metodo = "credito";
+  $("pagResumo").textContent = `${a.servico} com ${a.barbeiro} · ${dataCurta(a.dia)} às ${a.hora}`;
+  $("pagValor").textContent = real(a.total);
+  $("abasPag").querySelector('[data-metodo="pix"]').hidden = !pixOk;
+  $("avisoTeste").hidden = CONFIG.pagamentos?.modoCartao !== "teste";
+  const max = CONFIG.pagamentos?.maxParcelas || 1;
+  $("cartaoParcelas").innerHTML = Array.from({ length: max }, (_, i) =>
+    `<option value="${i + 1}">${i + 1}x de ${real(a.total / (i + 1))}${i ? " sem juros" : " (à vista)"}</option>`).join("");
+  $("formCartao").reset();
+  $("erroCartao").textContent = "";
+  atualizarCartaoVisual();
+  mostrarTela("telaPagamento");
+  escolherMetodo(metodo);
+}
+
+function escolherMetodo(m) {
+  metodoPag = m;
+  $("abasPag").querySelectorAll("[data-metodo]").forEach((b) => b.classList.toggle("ativo", b.dataset.metodo === m));
+  $("painelPix").hidden = m !== "pix";
+  $("formCartao").hidden = m === "pix";
+  $("campoParcelas").hidden = m !== "credito";
+  $("btnPagarCartao").textContent = `Pagar ${real(pagando.total)}`;
+  if (m === "pix") gerarPix();
+}
+$("abasPag").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-metodo]");
+  if (b) escolherMetodo(b.dataset.metodo);
+});
+
+async function gerarPix() {
+  $("qrPix").innerHTML = `<span class="sub">Gerando QR code...</span>`;
+  $("pixCodigo").value = "";
+  try {
+    const r = await api("POST", `/api/agendamentos/${pagando.id}/pix`, {}, token);
+    $("pixCodigo").value = r.codigo;
+    $("pixRecebedor").textContent = r.recebedor;
+    if (window.qrcode) {
+      const q = qrcode(0, "M");
+      q.addData(r.codigo);
+      q.make();
+      $("qrPix").innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    } else {
+      $("qrPix").innerHTML = `<span style="color:#333;font-size:.85rem;text-align:center">Sem internet para desenhar o QR code.<br>Use o Pix copia e cola abaixo.</span>`;
+    }
+  } catch (e) {
+    $("qrPix").innerHTML = "";
+    tratarErro(e);
+  }
+}
+
+$("btnCopiarPix").addEventListener("click", async () => {
+  const campo = $("pixCodigo");
+  try { await navigator.clipboard.writeText(campo.value); }
+  catch { campo.select(); document.execCommand("copy"); }
+  avisar("Código Pix copiado!");
+});
+
+$("btnJaPaguei").addEventListener("click", async () => {
+  const a = pagando;
+  await carregarMeusDados().catch(() => {});
+  mostrarSucesso(a, "Pix enviado!", `<p class="sub">Assim que a barbearia confirmar o recebimento de ${real(a.total)}, seu pedido aparece como <strong>pago</strong>.</p>`);
+});
+
+async function sairDoPagamento() {
+  await carregarMeusDados().catch(() => {});
+  renderInicio();
+  mostrarTela("telaInicio");
+  avisar("Seu horário está reservado. Você pode pagar depois em “Seus pedidos”.");
+}
+$("btnPagarDepois").addEventListener("click", sairDoPagamento);
+$("btnFecharPagamento").addEventListener("click", sairDoPagamento);
+
+// ---- Cartão: formatação e desenho do cartão
+function bandeiraDe(n) {
+  if (/^(4011|4312|4389|4514|4576|5041|5066|5067|509|6277|6362|6363|650|6516|6550)/.test(n)) return "ELO";
+  if (/^(606282|3841)/.test(n)) return "HIPERCARD";
+  if (/^3[47]/.test(n)) return "AMEX";
+  if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(n)) return "MASTERCARD";
+  if (/^4/.test(n)) return "VISA";
+  return "CARTÃO";
+}
+function atualizarCartaoVisual() {
+  const n = soDigitos($("cartaoNumero").value);
+  $("cvNumero").textContent = (n.padEnd(16, "•").match(/.{1,4}/g) || []).join(" ");
+  $("cvNome").textContent = $("cartaoNome").value.trim().toUpperCase() || "SEU NOME";
+  $("cvValidade").textContent = $("cartaoValidade").value || "MM/AA";
+  $("cvBandeira").textContent = bandeiraDe(n);
+}
+$("cartaoNumero").addEventListener("input", (e) => {
+  e.target.value = soDigitos(e.target.value).slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 ");
+  atualizarCartaoVisual();
+});
+$("cartaoValidade").addEventListener("input", (e) => {
+  const d = soDigitos(e.target.value).slice(0, 4);
+  e.target.value = d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
+  atualizarCartaoVisual();
+});
+$("cartaoCvv").addEventListener("input", (e) => (e.target.value = soDigitos(e.target.value).slice(0, 4)));
+$("cartaoNome").addEventListener("input", atualizarCartaoVisual);
+
+$("formCartao").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const botao = $("btnPagarCartao");
+  botao.disabled = true;
+  botao.textContent = "Processando...";
+  $("erroCartao").textContent = "";
+  try {
+    const r = await api("POST", `/api/agendamentos/${pagando.id}/cartao`, {
+      tipo: metodoPag,
+      numero: $("cartaoNumero").value,
+      nome: $("cartaoNome").value,
+      validade: $("cartaoValidade").value,
+      cvv: $("cartaoCvv").value,
+      parcelas: Number($("cartaoParcelas").value) || 1,
+    }, token);
+    if (!r.aprovado) { $("erroCartao").textContent = r.mensagem; return; }
+    const a = pagando;
+    $("formCartao").reset();
+    await carregarMeusDados().catch(() => {});
+    mostrarSucesso(a, "Pagamento aprovado!", `
+      <p class="sub">💳 ${esc(r.bandeira)} final ${esc(r.final)}${r.parcelas > 1 ? ` · ${r.parcelas}x de ${real(a.total / r.parcelas)}` : ""} · ${real(a.total)}</p>
+      ${r.modoTeste ? `<p class="aviso-teste">🧪 Modo de teste: nada foi cobrado de verdade.</p>` : ""}`);
+  } catch (er) {
+    if (er.status === 401) tratarErro(er);
+    else $("erroCartao").textContent = er.message;
+  } finally {
+    botao.disabled = false;
+    botao.textContent = `Pagar ${real(pagando.total)}`;
+  }
+});
 
 $("btnVoltarInicio").addEventListener("click", () => { renderInicio(); mostrarTela("telaInicio"); });
 

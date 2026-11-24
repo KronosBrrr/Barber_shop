@@ -20,6 +20,7 @@ function aplicarConfig(c) {
   CONFIG.barbeiros = c.barbeiros;
   CONFIG.produtos = c.produtos;
   CONFIG.funcionamento = c.funcionamento;
+  CONFIG.pagamentos = c.pagamentos || {};
   FUNCIONAMENTO = c.funcionamento;
   SERVICOS = c.servicos.filter((s) => s.ativo !== false);
   BARBEIROS = c.barbeiros.filter((b) => b.ativo !== false);

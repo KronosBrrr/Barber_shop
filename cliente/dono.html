@@ -3,16 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Barbearia — Painel do Dono</title>
+  <title>Barbearia Real — Painel do Dono</title>
+  <script>try { var t = JSON.parse(localStorage.getItem("tema")); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="dono.css">
 </head>
 <body>
 
+  <button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro">
+    <span class="sol">☀️</span><span class="lua">🌙</span>
+  </button>
+
   <!-- ===== LOGIN DO DONO ===== -->
   <section class="tela tela-login" id="telaLoginDono">
     <div class="caixa-login">
-      <div class="logo">✂</div>
+      <div class="logo"><span><span class="coroa">👑</span>✂</span></div>
       <h1>Painel do dono</h1>
       <p class="sub">Acesso restrito à administração</p>
       <form id="formDono" class="form">
@@ -28,12 +36,15 @@
     </div>
   </section>
 
-  <!-- ===== PAINEL ===== -->
+  <!-- ===== PAINEL (menu do lado direito) ===== -->
   <div class="tela app-dono" id="telaDono" hidden>
     <aside class="menu">
-      <div class="marca">✂ Barbearia <small>Painel do dono</small></div>
-      <nav id="nav"></nav>
-      <button class="btn-sair" id="sairDono">Sair</button>
+      <div class="marca">👑 Barbearia Real <small>Painel do dono</small></div>
+      <nav id="nav" aria-label="Menu do painel"></nav>
+      <div class="menu-rodape">
+        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+        <button class="btn-sair" id="sairDono">Sair</button>
+      </div>
     </aside>
     <main class="area" id="conteudo"></main>
   </div>

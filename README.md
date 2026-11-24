@@ -28,10 +28,24 @@ Na primeira vez o banco de dados (`servidor/barbearia.db`) é criado sozinho, j�
 - `python servidor/servidor.py --resetar`: apaga o banco e cria de novo com os dados de teste
 - `python servidor/servidor.py --rede`: deixa celulares no mesmo Wi-Fi acessarem
 
+## Pagamentos
+
+- **Pix:** gera o QR code e o código "copia e cola" no padrão do Banco Central, com a chave Pix da barbearia (cadastrada pelo dono em *Funcionamento → Pagamentos*). O dinheiro cai direto na conta da chave. O dono confirma o recebimento no painel (botão **⚡ Pix recebido**).
+- **Cartão de crédito (até 3x) e débito:** formulário com validação do número, validade e CVV, e identificação da bandeira. **Está em modo de teste, ou seja, não cobra de verdade.** Para cobrar de verdade é preciso contratar um intermediador (Mercado Pago, PagSeguro, Stone…) e ligar em `servidor/pagamentos.py`.
+- Os dados do cartão **nunca são guardados**: só a bandeira e os 4 últimos números.
+- Cancelou um pedido pago no cartão? O valor é estornado automaticamente.
+
+Cartões de teste: `4111 1111 1111 1111` (aprovado) e `4000 0000 0000 0002` (recusado), com qualquer validade futura e CVV `123`.
+
+> ⚠ A chave Pix que vem no banco de teste é só um exemplo. Troque pela chave real antes de usar.
+
 ## O que o sistema faz
+
+**Visual:** tema preto e dourado, com botão ☀️/🌙 para alternar entre modo escuro e claro (a escolha fica salva no aparelho). No painel do dono, o menu fica do lado direito.
 
 **App do cliente**
 - Login e cadastro com WhatsApp e senha
+- Pagamento por Pix (QR code), cartão de crédito, débito ou na barbearia
 - Tela inicial com o próximo horário e os pedidos anteriores
 - Agendamento em 5 passos: serviço → barbeiro → dia e horário → produtos (entregues no dia do atendimento) → confirmação
 - Cancelar um horário e "agendar de novo"
@@ -54,6 +68,7 @@ cliente/            sites (HTML, CSS, JavaScript)
   comum.js          funções usadas pelos dois
 servidor/
   servidor.py       API + servidor (Python, sem bibliotecas extras)
+  pagamentos.py     Pix (BR Code) e cartão (modo de teste)
   schema.sql        tabelas do banco de dados (SQLite)
 iniciar.bat         liga o servidor no Windows
 ```

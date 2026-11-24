@@ -124,6 +124,25 @@ CREATE TABLE IF NOT EXISTS agendamento_produtos (
 );
 CREATE INDEX IF NOT EXISTS idx_agprod_agendamento ON agendamento_produtos (agendamento_id);
 
+-- Pagamentos feitos pelos clientes (Pix e cartão)
+-- Nunca guardamos o número completo do cartão nem o CVV: só a bandeira e os 4 últimos números.
+CREATE TABLE IF NOT EXISTS pagamentos_clientes (
+  id              TEXT PRIMARY KEY,
+  agendamento_id  INTEGER NOT NULL REFERENCES agendamentos(id),
+  metodo          TEXT NOT NULL CHECK (metodo IN ('pix', 'credito', 'debito')),
+  status          TEXT NOT NULL CHECK (status IN ('aguardando', 'aprovado', 'recusado', 'estornado')),
+  valor           REAL NOT NULL,
+  txid            TEXT,                -- identificador do Pix ou da transação do cartão
+  pix_codigo      TEXT,                -- código copia e cola
+  bandeira        TEXT,
+  final_cartao    TEXT,
+  parcelas        INTEGER NOT NULL DEFAULT 1,
+  mensagem        TEXT NOT NULL DEFAULT '',
+  criado_em       TEXT NOT NULL,
+  pago_em         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pagcli_agendamento ON pagamentos_clientes (agendamento_id);
+
 -- Pagamentos feitos aos barbeiros
 CREATE TABLE IF NOT EXISTS pagamentos_barbeiros (
   id           TEXT PRIMARY KEY,

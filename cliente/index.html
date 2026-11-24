@@ -3,16 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Barbearia — Área do Cliente</title>
+  <title>Barbearia Real — Área do Cliente</title>
+  <script>try { var t = JSON.parse(localStorage.getItem("tema")); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+  <button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro" id="temaLogin">
+    <span class="sol">☀️</span><span class="lua">🌙</span>
+  </button>
+
   <!-- ===================== LOGIN ===================== -->
   <section class="tela tela-login" id="telaLogin">
     <div class="caixa-login">
-      <div class="logo">✂</div>
-      <h1>Barbearia</h1>
+      <div class="logo"><span><span class="coroa">👑</span>✂</span></div>
+      <h1>Barbearia Real</h1>
       <p class="sub">Entre para marcar seu horário e ver seus pedidos</p>
 
       <form id="formEntrar" class="form">
@@ -47,8 +55,13 @@
   <!-- ===================== INÍCIO ===================== -->
   <section class="tela" id="telaInicio" hidden>
     <header class="topo">
-      <div class="marca">✂ Barbearia</div>
-      <button class="btn-sair" id="btnSair">Sair</button>
+      <div class="marca">👑 Barbearia Real</div>
+      <nav class="nav-topo" aria-label="Menu">
+        <button class="nav-link" id="navAgendar">Agendar</button>
+        <button class="nav-link" id="navPedidos">Meus pedidos</button>
+        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+        <button class="btn-sair" id="btnSair">Sair</button>
+      </nav>
     </header>
 
     <main class="conteudo">
@@ -71,7 +84,7 @@
         <span class="seta">›</span>
       </button>
 
-      <h2 class="titulo-secao">Seus pedidos anteriores</h2>
+      <h2 class="titulo-secao" id="tituloPedidos">Seus pedidos anteriores</h2>
       <div id="historico"></div>
     </main>
   </section>
@@ -81,7 +94,9 @@
     <header class="topo">
       <button class="btn-voltar" id="btnFecharAgenda" aria-label="Voltar ao início">✕</button>
       <div class="marca">Novo agendamento</div>
-      <span></span>
+      <nav class="nav-topo">
+        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+      </nav>
     </header>
 
     <div class="etapas" id="etapas"></div>
@@ -100,11 +115,91 @@
     </footer>
   </section>
 
+  <!-- ===================== PAGAMENTO ===================== -->
+  <section class="tela" id="telaPagamento" hidden>
+    <header class="topo">
+      <button class="btn-voltar" id="btnFecharPagamento" aria-label="Voltar ao início">✕</button>
+      <div class="marca">Pagamento</div>
+      <nav class="nav-topo">
+        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+      </nav>
+    </header>
+
+    <main class="conteudo" style="max-width:520px">
+      <div class="pagamento-caixa">
+        <div class="valor-grande">
+          <span class="sub" id="pagResumo"></span>
+          <strong id="pagValor">R$ 0,00</strong>
+        </div>
+
+        <div class="abas-pag" id="abasPag">
+          <button type="button" data-metodo="pix">⚡ Pix</button>
+          <button type="button" data-metodo="credito">💳 Crédito</button>
+          <button type="button" data-metodo="debito">💳 Débito</button>
+        </div>
+
+        <!-- Pix -->
+        <div id="painelPix" class="form" hidden>
+          <div class="qr" id="qrPix"><span class="sub">Gerando QR code...</span></div>
+          <ol class="passos-pix">
+            <li>Abra o app do seu banco e escolha <strong>Pix → Ler QR code</strong></li>
+            <li>Ou copie o código abaixo e use <strong>Pix copia e cola</strong></li>
+            <li>Confira o valor e o nome do recebedor: <strong id="pixRecebedor"></strong></li>
+          </ol>
+          <div class="copia-cola">
+            <input id="pixCodigo" readonly aria-label="Código Pix copia e cola">
+            <button type="button" class="btn-secundario" id="btnCopiarPix">Copiar</button>
+          </div>
+          <button type="button" class="btn-principal" id="btnJaPaguei">Já fiz o Pix</button>
+          <p class="sub">A barbearia confirma o recebimento e seu pedido aparece como pago.</p>
+        </div>
+
+        <!-- Cartão -->
+        <form id="formCartao" class="form form-cartao" hidden autocomplete="on">
+          <div class="cartao-visual" aria-hidden="true">
+            <div class="cv-topo"><span class="chip-cartao"></span><span class="cv-bandeira" id="cvBandeira">CARTÃO</span></div>
+            <div class="cv-numero" id="cvNumero">•••• •••• •••• ••••</div>
+            <div class="cv-rodape">
+              <div><small>Nome</small><span id="cvNome">SEU NOME</span></div>
+              <div><small>Validade</small><span id="cvValidade">MM/AA</span></div>
+            </div>
+          </div>
+
+          <label>Número do cartão
+            <input id="cartaoNumero" inputmode="numeric" autocomplete="cc-number" placeholder="0000 0000 0000 0000" maxlength="23" required>
+          </label>
+          <label>Nome impresso no cartão
+            <input id="cartaoNome" autocomplete="cc-name" placeholder="Como está no cartão" required>
+          </label>
+          <div class="dupla">
+            <label>Validade
+              <input id="cartaoValidade" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/AA" maxlength="5" required>
+            </label>
+            <label>CVV
+              <input id="cartaoCvv" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4" required>
+            </label>
+          </div>
+          <label id="campoParcelas">Parcelas
+            <select id="cartaoParcelas"></select>
+          </label>
+          <p class="aviso-teste" id="avisoTeste" hidden>
+            🧪 <strong>Modo de teste:</strong> nenhum valor é cobrado de verdade.
+            Use <strong>4111 1111 1111 1111</strong> (aprovado) ou <strong>4000 0000 0000 0002</strong> (recusado), qualquer validade futura e CVV 123.
+          </p>
+          <p class="erro" id="erroCartao"></p>
+          <button type="submit" class="btn-principal" id="btnPagarCartao">Pagar</button>
+          <p class="sub">🔒 Os dados do cartão não ficam guardados no sistema.</p>
+        </form>
+      </div>
+      <p style="text-align:center;margin-top:16px"><button type="button" class="btn-texto" id="btnPagarDepois">Pagar depois</button></p>
+    </main>
+  </section>
+
   <!-- ===================== SUCESSO ===================== -->
   <section class="tela tela-login" id="telaSucesso" hidden>
     <div class="caixa-login">
       <div class="logo ok">✓</div>
-      <h1>Agendamento confirmado!</h1>
+      <h1 id="tituloSucesso">Agendamento confirmado!</h1>
       <div id="detalheSucesso" class="detalhe-sucesso"></div>
       <button class="btn-principal" id="btnVoltarInicio">Voltar ao início</button>
     </div>
@@ -112,6 +207,7 @@
 
   <div class="aviso" id="aviso"></div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
   <script src="comum.js"></script>
   <script src="dados.js"></script>
   <script src="app.js"></script>
