@@ -57,6 +57,7 @@ async function entrar(novoToken) {
   salvar("tokenCliente", token);
   await carregarMeusDados();
   $("formEntrar").reset(); $("formCriar").reset();
+  atualizarBotoesHome();
   renderInicio();
   mostrarTela("telaInicio");
 }
@@ -66,9 +67,65 @@ function sair() {
   token = null; usuario = null; agendamentos = [];
   salvar("tokenCliente", null);
   $("formCriar").hidden = true; $("formEntrar").hidden = false;
-  mostrarTela("telaLogin");
+  atualizarBotoesHome();
+  mostrarTela("telaHome");
 }
 $("btnSair").addEventListener("click", sair);
+
+// ================= Página inicial (apresentação da barbearia) =================
+function irParaCliente() {
+  if (usuario) { renderInicio(); mostrarTela("telaInicio"); }
+  else mostrarTela("telaLogin");
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-ir-cliente]")) { e.preventDefault(); irParaCliente(); }
+});
+$("voltarHome").addEventListener("click", () => mostrarTela("telaHome"));
+// clicar no nome da barbearia (na área do cliente) volta para a página inicial
+document.querySelector("#telaInicio .marca").addEventListener("click", () => { renderHome(); mostrarTela("telaHome"); });
+
+function atualizarBotoesHome() {
+  $("btnEntrarTopo").textContent = usuario ? `Olá, ${usuario.nome.split(" ")[0]}` : "Entrar";
+}
+
+function fotoOuInicial(b, classe = "") {
+  return b.foto
+    ? `<img class="avatar ${classe} foto" src="${esc(b.foto)}" alt="Foto de ${esc(b.nome)}" loading="lazy">`
+    : `<span class="avatar ${classe}">${esc(b.nome[0])}</span>`;
+}
+
+function renderHome() {
+  $("anoAtual").textContent = new Date().getFullYear();
+  const menor = SERVICOS.length ? Math.min(...SERVICOS.map((s) => s.preco)) : 0;
+  $("homeNumeros").innerHTML = [
+    [BARBEIROS.length, "barbeiros especialistas"],
+    [SERVICOS.length, "serviços para você"],
+    [menor ? real(menor) : "—", "a partir de"],
+    ["1 min", "para agendar"],
+  ].map(([n, t]) => `<div><strong>${n}</strong><span>${t}</span></div>`).join("");
+
+  $("homeServicos").innerHTML = SERVICOS.map((s) => `
+    <div class="servico-home">
+      <span class="icone">${esc(s.icone)}</span>
+      <div><strong>${esc(s.nome)}</strong><span class="sub">⏱ ${s.duracao} min</span></div>
+      <span class="preco">${real(s.preco)}</span>
+    </div>`).join("");
+
+  $("homeEquipe").innerHTML = BARBEIROS.map((b) => `
+    <div class="membro">
+      ${fotoOuInicial(b, "enorme")}
+      <h3>${esc(b.nome)}</h3>
+      <p class="sub">${esc(b.especialidade || "Barbeiro")}</p>
+    </div>`).join("") || `<p class="sub">Em breve.</p>`;
+
+  const f = FUNCIONAMENTO;
+  $("homeHorarios").innerHTML = (f.semana || []).map((d, i) => ({ d, i }))
+    .slice(1).concat([{ d: f.semana[0], i: 0 }])   // começa na segunda
+    .map(({ d, i }) => `
+      <div class="dia-home ${d.aberto ? "" : "fechado"} ${i === new Date().getDay() ? "hoje" : ""}">
+        <span>${DIAS_SEMANA[i]}</span><strong>${d.aberto ? `${d.abre} – ${d.fecha}` : "Fechado"}</strong>
+      </div>`).join("");
+}
 
 // Sessão expirada → volta pro login
 function tratarErro(e) {
@@ -295,7 +352,7 @@ function passoBarbeiro() {
     <h2>Com qual barbeiro?</h2>
     <div class="grade">${BARBEIROS.map((b) => `
       <button class="cartao ${pedido.barbeiro?.id === b.id ? "selecionado" : ""}" data-id="${b.id}">
-        <span class="avatar">${b.nome[0]}</span>
+        ${fotoOuInicial(b, "grande")}
         <strong>${b.nome}</strong>
         <span class="sub">${b.especialidade}</span>
       </button>`).join("")}
@@ -505,19 +562,69 @@ function abrirPagamento(a, metodo) {
     `<option value="${i + 1}">${i + 1}x de ${real(a.total / (i + 1))}${i ? " sem juros" : " (à vista)"}</option>`).join("");
   $("formCartao").reset();
   $("erroCartao").textContent = "";
+  $("pagEmail").value = usuario?.email || "";
+  $("pagCpf").value = usuario?.cpf || "";
+  if (comMercadoPago()) carregarSdkMercadoPago();
   atualizarCartaoVisual();
   mostrarTela("telaPagamento");
   escolherMetodo(metodo);
 }
 
+const comMercadoPago = () => CONFIG.pagamentos?.modoCartao === "mercadopago";
+
 function escolherMetodo(m) {
   metodoPag = m;
+  pararEsperaPix();
   $("abasPag").querySelectorAll("[data-metodo]").forEach((b) => b.classList.toggle("ativo", b.dataset.metodo === m));
   $("painelPix").hidden = m !== "pix";
   $("formCartao").hidden = m === "pix";
   $("campoParcelas").hidden = m !== "credito";
   $("btnPagarCartao").textContent = `Pagar ${real(pagando.total)}`;
-  if (m === "pix") gerarPix();
+  // o Mercado Pago pede e-mail (e CPF no cartão)
+  $("dadosPagador").hidden = !comMercadoPago();
+  $("campoCpf").hidden = m === "pix";
+  if (m === "pix") {
+    const precisaEmail = comMercadoPago() && !usuario?.email;
+    $("btnGerarPix").hidden = !precisaEmail;
+    if (precisaEmail) {
+      $("qrPix").hidden = true;
+      $("aguardandoPix").hidden = true;
+    } else gerarPix();
+  }
+}
+$("btnGerarPix").addEventListener("click", () => { $("btnGerarPix").hidden = true; gerarPix(); });
+
+// ---- Pix automático (Mercado Pago): pergunta ao servidor de tempos em tempos se o Pix caiu
+let esperaPix = null;
+function pararEsperaPix() { clearInterval(esperaPix); esperaPix = null; }
+function esperarPix() {
+  pararEsperaPix();
+  const a = pagando;
+  esperaPix = setInterval(async () => {
+    if ($("telaPagamento").hidden || pagando !== a) return pararEsperaPix();
+    try {
+      const r = await api("GET", `/api/agendamentos/${a.id}/pagamento`, undefined, token);
+      if (r.pago) {
+        pararEsperaPix();
+        await carregarMeusDados().catch(() => {});
+        mostrarSucesso(a, "Pix recebido!", `<p class="sub">✓ Recebemos ${real(a.total)} pelo Mercado Pago. Seu pedido está pago.</p>`);
+      }
+    } catch (e) { if (e.status === 401) { pararEsperaPix(); tratarErro(e); } }
+  }, 4000);
+}
+
+// ---- Biblioteca do Mercado Pago (só é baixada quando ele está ligado)
+let sdkMercadoPago = null;
+function carregarSdkMercadoPago() {
+  if (sdkMercadoPago) return sdkMercadoPago;
+  sdkMercadoPago = new Promise((ok, falha) => {
+    const s = document.createElement("script");
+    s.src = "https://sdk.mercadopago.com/js/v2";
+    s.onload = () => ok(new window.MercadoPago(CONFIG.pagamentos.mpPublicKey, { locale: "pt-BR" }));
+    s.onerror = () => { sdkMercadoPago = null; falha(new Error("Não foi possível carregar o Mercado Pago. Verifique a internet.")); };
+    document.head.appendChild(s);
+  });
+  return sdkMercadoPago;
 }
 $("abasPag").addEventListener("click", (e) => {
   const b = e.target.closest("[data-metodo]");
@@ -525,13 +632,20 @@ $("abasPag").addEventListener("click", (e) => {
 });
 
 async function gerarPix() {
+  $("qrPix").hidden = false;
   $("qrPix").innerHTML = `<span class="sub">Gerando QR code...</span>`;
   $("pixCodigo").value = "";
   try {
-    const r = await api("POST", `/api/agendamentos/${pagando.id}/pix`, {}, token);
+    const r = await api("POST", `/api/agendamentos/${pagando.id}/pix`, { email: $("pagEmail").value.trim() }, token);
+    if (comMercadoPago() && usuario && $("pagEmail").value.trim()) usuario.email = $("pagEmail").value.trim();
     $("pixCodigo").value = r.codigo;
     $("pixRecebedor").textContent = r.recebedor;
-    if (window.qrcode) {
+    $("btnJaPaguei").hidden = !!r.automatico;      // com Mercado Pago a confirmação é automática
+    $("aguardandoPix").hidden = !r.automatico;
+    if (r.automatico) esperarPix();
+    if (r.qrBase64) {
+      $("qrPix").innerHTML = `<img src="data:image/png;base64,${r.qrBase64}" alt="QR code do Pix">`;
+    } else if (window.qrcode) {
       const q = qrcode(0, "M");
       q.addData(r.codigo);
       q.make();
@@ -541,6 +655,7 @@ async function gerarPix() {
     }
   } catch (e) {
     $("qrPix").innerHTML = "";
+    if (comMercadoPago() && e.status === 400) $("btnGerarPix").hidden = false;  // ex.: e-mail inválido
     tratarErro(e);
   }
 }
@@ -559,6 +674,7 @@ $("btnJaPaguei").addEventListener("click", async () => {
 });
 
 async function sairDoPagamento() {
+  pararEsperaPix();
   await carregarMeusDados().catch(() => {});
   renderInicio();
   mostrarTela("telaInicio");
@@ -602,14 +718,35 @@ $("formCartao").addEventListener("submit", async (e) => {
   botao.textContent = "Processando...";
   $("erroCartao").textContent = "";
   try {
-    const r = await api("POST", `/api/agendamentos/${pagando.id}/cartao`, {
-      tipo: metodoPag,
-      numero: $("cartaoNumero").value,
-      nome: $("cartaoNome").value,
-      validade: $("cartaoValidade").value,
-      cvv: $("cartaoCvv").value,
-      parcelas: Number($("cartaoParcelas").value) || 1,
-    }, token);
+    const parcelas = metodoPag === "credito" ? Number($("cartaoParcelas").value) || 1 : 1;
+    let corpo;
+    if (comMercadoPago()) {
+      // Os dados do cartão vão direto para o Mercado Pago, que devolve um "token".
+      // Nosso servidor recebe só o token: nunca vê o número do cartão.
+      const mp = await carregarSdkMercadoPago();
+      const numero = soDigitos($("cartaoNumero").value);
+      const [mes, ano] = $("cartaoValidade").value.split("/");
+      const cpf = soDigitos($("pagCpf").value);
+      if (cpf.length !== 11) throw new Error("Digite o CPF do dono do cartão.");
+      const metodos = (await mp.getPaymentMethods({ bin: numero.slice(0, 8) })).results || [];
+      const tipoMP = metodoPag === "debito" ? "debit_card" : "credit_card";
+      const m = metodos.find((x) => x.payment_type_id === tipoMP) || metodos[0];
+      if (!m) throw new Error("Cartão não reconhecido. Confira o número.");
+      let tokenCartao;
+      try {
+        tokenCartao = await mp.createCardToken({
+          cardNumber: numero, cardholderName: $("cartaoNome").value.trim(),
+          cardExpirationMonth: mes, cardExpirationYear: ano?.length === 2 ? "20" + ano : ano,
+          securityCode: $("cartaoCvv").value, identificationType: "CPF", identificationNumber: cpf,
+        });
+      } catch { throw new Error("Confira os dados do cartão (número, validade e CVV)."); }
+      corpo = { tipo: metodoPag, parcelas, token: tokenCartao.id, metodoId: m.id, emissorId: m.issuer?.id,
+        bandeira: m.name, final: numero.slice(-4), email: $("pagEmail").value.trim(), cpf };
+    } else {
+      corpo = { tipo: metodoPag, parcelas, numero: $("cartaoNumero").value, nome: $("cartaoNome").value,
+        validade: $("cartaoValidade").value, cvv: $("cartaoCvv").value };
+    }
+    const r = await api("POST", `/api/agendamentos/${pagando.id}/cartao`, corpo, token);
     if (!r.aprovado) { $("erroCartao").textContent = r.mensagem; return; }
     const a = pagando;
     $("formCartao").reset();
@@ -630,13 +767,12 @@ $("btnVoltarInicio").addEventListener("click", () => { renderInicio(); mostrarTe
 
 // ================= Início do app =================
 (async () => {
-  mostrarTela("telaLogin");
-  try { await carregarConfig(); } catch (e) { avisar(e.message); }
+  mostrarTela("telaHome");
+  try { await carregarConfig(); renderHome(); } catch (e) { avisar(e.message); }
   if (!token) return;
   try {
-    await carregarMeusDados();
-    renderInicio();
-    mostrarTela("telaInicio");
+    await carregarMeusDados();   // já logado: os botões da página inicial levam direto para a área dele
+    atualizarBotoesHome();
   } catch (e) {
     if (e.status === 401) { token = null; salvar("tokenCliente", null); }
     else avisar(e.message);

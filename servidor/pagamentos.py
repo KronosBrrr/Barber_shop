@@ -158,5 +158,128 @@ class ProvedorTeste:
             raise CartaoRecusado("Pagamento recusado: cartão bloqueado. Fale com seu banco.")
         return "TESTE-" + secrets.token_hex(6).upper()  # código da transação
 
+    def reembolsar(self, transacao, valor):
+        return "REEMB-" + secrets.token_hex(6).upper()
+
 
 PROVEDOR_CARTAO = ProvedorTeste()
+
+
+# =====================================================================
+#  MERCADO PAGO (cobrança e reembolso de verdade)
+#  Documentação: https://www.mercadopago.com.br/developers/pt/reference
+#  O dono cola a "Public Key" e o "Access Token" no painel (Funcionamento → Pagamentos).
+#  Para testar sem dinheiro de verdade, use as credenciais de TESTE do Mercado Pago.
+# =====================================================================
+import json
+import urllib.error
+import urllib.request
+import uuid
+
+
+class ErroMercadoPago(Exception):
+    pass
+
+
+# Motivos de recusa do cartão, em português
+MOTIVOS_RECUSA = {
+    "cc_rejected_insufficient_amount": "Saldo ou limite insuficiente.",
+    "cc_rejected_bad_filled_security_code": "Código de segurança (CVV) incorreto.",
+    "cc_rejected_bad_filled_date": "Data de validade incorreta.",
+    "cc_rejected_bad_filled_card_number": "Número do cartão incorreto.",
+    "cc_rejected_bad_filled_other": "Confira os dados do cartão.",
+    "cc_rejected_call_for_authorize": "Seu banco pediu para autorizar o pagamento. Ligue para o banco e tente de novo.",
+    "cc_rejected_card_disabled": "Cartão desativado. Fale com seu banco.",
+    "cc_rejected_duplicated_payment": "Pagamento repetido. Você já pagou esse valor.",
+    "cc_rejected_high_risk": "Pagamento recusado por segurança. Tente outro cartão ou o Pix.",
+    "cc_rejected_max_attempts": "Muitas tentativas. Use outro cartão.",
+    "cc_rejected_blacklist": "Não foi possível processar este cartão.",
+    "cc_rejected_other_reason": "O banco recusou o pagamento. Tente outro cartão.",
+}
+
+
+class MercadoPago:
+    nome = "mercadopago"
+    import os as _os
+    URL = _os.environ.get("MERCADOPAGO_URL", "https://api.mercadopago.com")  # outro endereço só em testes automáticos
+
+    def __init__(self, access_token):
+        self.token = access_token
+
+    def _chamar(self, metodo, caminho, corpo=None):
+        dados = json.dumps(corpo).encode() if corpo is not None else None
+        req = urllib.request.Request(self.URL + caminho, data=dados, method=metodo)
+        req.add_header("Authorization", "Bearer " + self.token)
+        req.add_header("Content-Type", "application/json")
+        if metodo == "POST":
+            req.add_header("X-Idempotency-Key", str(uuid.uuid4()))  # evita cobrança duplicada
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return json.loads(resp.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            try:
+                info = json.loads(e.read() or b"{}")
+            except ValueError:
+                info = {}
+            causa = (info.get("cause") or [{}])[0].get("description") if isinstance(info.get("cause"), list) else None
+            if e.code == 401:
+                raise ErroMercadoPago("Credenciais do Mercado Pago inválidas. Confira o Access Token no painel.")
+            raise ErroMercadoPago(f"Mercado Pago recusou: {causa or info.get('message') or e.reason}")
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise ErroMercadoPago("Sem conexão com o Mercado Pago. Verifique a internet e tente de novo.")
+
+    def testar(self):
+        """Confere se as credenciais funcionam."""
+        self._chamar("GET", "/v1/payment_methods")
+        return True
+
+    def criar_pix(self, valor, descricao, email, referencia, expira_minutos=60):
+        from datetime import datetime, timedelta, timezone
+        expira = (datetime.now(timezone.utc) + timedelta(minutes=expira_minutos)).strftime("%Y-%m-%dT%H:%M:%S.000-00:00")
+        r = self._chamar("POST", "/v1/payments", {
+            "transaction_amount": round(valor, 2),
+            "description": descricao,
+            "payment_method_id": "pix",
+            "payer": {"email": email},
+            "external_reference": referencia,
+            "date_of_expiration": expira,
+        })
+        dados = (r.get("point_of_interaction") or {}).get("transaction_data") or {}
+        if not dados.get("qr_code"):
+            raise ErroMercadoPago("O Mercado Pago não devolveu o código Pix.")
+        return {"id": str(r["id"]), "status": r.get("status"), "codigo": dados["qr_code"], "qr_base64": dados.get("qr_code_base64")}
+
+    def cobrar_cartao(self, *, valor, descricao, token, metodo_id, emissor_id, parcelas, email, cpf, referencia):
+        corpo = {
+            "transaction_amount": round(valor, 2),
+            "token": token,
+            "description": descricao,
+            "installments": parcelas,
+            "payment_method_id": metodo_id,
+            "payer": {"email": email, "identification": {"type": "CPF", "number": cpf}},
+            "external_reference": referencia,
+        }
+        if emissor_id:
+            corpo["issuer_id"] = emissor_id
+        r = self._chamar("POST", "/v1/payments", corpo)
+        return {"id": str(r["id"]), "status": r.get("status"), "detalhe": r.get("status_detail", "")}
+
+    def consultar(self, pagamento_id):
+        r = self._chamar("GET", f"/v1/payments/{pagamento_id}")
+        return {"status": r.get("status"), "detalhe": r.get("status_detail", "")}
+
+    def reembolsar(self, pagamento_id, valor=None):
+        """Devolve o dinheiro (cartão ou Pix). Sem valor = reembolso total."""
+        r = self._chamar("POST", f"/v1/payments/{pagamento_id}/refunds", {"amount": round(valor, 2)} if valor else {})
+        return str(r.get("id", ""))
+
+    def cancelar(self, pagamento_id):
+        """Cancela um Pix que ainda não foi pago."""
+        try:
+            self._chamar("PUT", f"/v1/payments/{pagamento_id}", {"status": "cancelled"})
+        except ErroMercadoPago:
+            pass
+
+
+def motivo_recusa(detalhe):
+    return MOTIVOS_RECUSA.get(detalhe, "O pagamento não foi aprovado. Tente outro cartão ou o Pix.")

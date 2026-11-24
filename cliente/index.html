@@ -12,13 +12,118 @@
 </head>
 <body>
 
-  <button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro" id="temaLogin">
+  <button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro" id="temaLogin" hidden>
     <span class="sol">☀️</span><span class="lua">🌙</span>
   </button>
 
+  <!-- ===================== PÁGINA INICIAL (apresentação) ===================== -->
+  <section class="tela home" id="telaHome">
+    <header class="topo topo-home">
+      <div class="marca">👑 Barbearia Real</div>
+      <nav class="nav-topo" aria-label="Menu do site">
+        <a class="nav-link" href="#servicos">Serviços</a>
+        <a class="nav-link" href="#equipe">Equipe</a>
+        <a class="nav-link" href="#como-funciona">Como funciona</a>
+        <a class="nav-link" href="#horarios">Horários</a>
+        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+        <button class="btn-peq-ouro" data-ir-cliente id="btnEntrarTopo">Entrar</button>
+      </nav>
+    </header>
+
+    <div class="hero">
+      <div class="hero-texto">
+        <p class="selo">👑 Barbearia Real</p>
+        <h1>Seu estilo merece um <span class="ouro">atendimento de rei.</span></h1>
+        <p class="hero-sub">Cortes clássicos e modernos, barba na toalha quente e produtos selecionados.
+          Agora você agenda pelo celular: escolhe o barbeiro, vê os horários livres e paga como preferir.
+          <strong>Sem fila, sem ligação, sem espera.</strong></p>
+        <div class="hero-botoes">
+          <button class="btn-principal btn-grande" data-ir-cliente>📅 Agendar meu horário</button>
+          <a class="btn-secundario btn-grande" href="#como-funciona">Como funciona</a>
+        </div>
+        <div class="acessos">
+          <span class="sub">Faz parte da equipe?</span>
+          <a class="acesso" href="/barbeiro">✂️ Sou barbeiro</a>
+          <a class="acesso" href="/dono">👑 Sou o dono</a>
+        </div>
+      </div>
+      <div class="hero-arte" aria-hidden="true">
+        <div class="hero-circulo"><span>✂</span></div>
+        <div class="hero-cartao c1">⭐ Atendimento de excelência</div>
+        <div class="hero-cartao c2">⚡ Pague por Pix ou cartão</div>
+        <div class="hero-cartao c3">🎁 Produtos entregues no seu horário</div>
+      </div>
+    </div>
+
+    <div class="numeros" id="homeNumeros"></div>
+
+    <section class="secao">
+      <p class="selo">Por que a Barbearia Real</p>
+      <h2 class="titulo-grande">Mais que um corte: uma experiência.</h2>
+      <div class="cards-home">
+        <div class="card-home"><span class="icone">👑</span><h3>Atendimento de rei</h3><p>Cada cliente é recebido com atenção total. Do café na chegada ao acabamento final, cuidamos de cada detalhe.</p></div>
+        <div class="card-home"><span class="icone">✂️</span><h3>Mãos experientes</h3><p>Barbeiros especialistas em degradê, navalhado, barba e química, sempre atualizados com as tendências.</p></div>
+        <div class="card-home"><span class="icone">🧴</span><h3>Produtos selecionados</h3><p>Pomadas, géis, óleos e minoxidil de qualidade. Peça junto com o agendamento e receba no seu horário.</p></div>
+        <div class="card-home"><span class="icone">🛋️</span><h3>Ambiente confortável</h3><p>Um espaço pensado para você relaxar, conversar e sair renovado, com pontualidade de verdade.</p></div>
+      </div>
+    </section>
+
+    <section class="secao secao-destaque" id="como-funciona">
+      <p class="selo">O site trabalha por você</p>
+      <h2 class="titulo-grande">Ser atendido nunca foi tão fácil.</h2>
+      <div class="passos-home">
+        <div class="passo-home"><span class="num-home">1</span><h3>Escolha o serviço</h3><p>Corte, barba, sobrancelha, pigmentação... com preço e duração na tela.</p></div>
+        <div class="passo-home"><span class="num-home">2</span><h3>Escolha seu barbeiro</h3><p>Veja a foto e a especialidade de cada um e marque com quem você confia.</p></div>
+        <div class="passo-home"><span class="num-home">3</span><h3>Marque o horário</h3><p>Só aparecem os horários livres. Nada de ligar, esperar resposta ou ficar na fila.</p></div>
+        <div class="passo-home"><span class="num-home">4</span><h3>Pague como quiser</h3><p>Pix com QR code, cartão de crédito em até 3x, débito ou na barbearia.</p></div>
+      </div>
+      <ul class="vantagens">
+        <li>✓ Seus pedidos e horários ficam salvos na sua conta</li>
+        <li>✓ Cancele pelo app; se já pagou, o reembolso é automático</li>
+        <li>✓ Produtos separados e entregues no dia do seu atendimento</li>
+        <li>✓ Funciona no celular e no computador, no modo claro ou escuro</li>
+      </ul>
+    </section>
+
+    <section class="secao" id="servicos">
+      <p class="selo">Serviços</p>
+      <h2 class="titulo-grande">Preços claros, sem surpresa.</h2>
+      <div class="lista-servicos" id="homeServicos"></div>
+    </section>
+
+    <section class="secao" id="equipe">
+      <p class="selo">Nossa equipe</p>
+      <h2 class="titulo-grande">Conheça quem vai cuidar do seu visual.</h2>
+      <div class="equipe" id="homeEquipe"></div>
+    </section>
+
+    <section class="secao" id="horarios">
+      <p class="selo">Horários</p>
+      <h2 class="titulo-grande">Estamos esperando por você.</h2>
+      <div class="horarios-home" id="homeHorarios"></div>
+    </section>
+
+    <section class="chamada-final">
+      <h2>Pronto para sair na régua?</h2>
+      <p>Seu próximo horário está a um clique.</p>
+      <button class="btn-principal btn-grande" data-ir-cliente>📅 Agendar agora</button>
+    </section>
+
+    <footer class="rodape-home">
+      <div class="marca">👑 Barbearia Real</div>
+      <div class="links-rodape">
+        <button class="link" data-ir-cliente>Área do cliente</button>
+        <a href="/barbeiro">Área do barbeiro</a>
+        <a href="/dono">Área do dono</a>
+      </div>
+      <p class="sub">© <span id="anoAtual"></span> Barbearia Real · Agendamento online</p>
+    </footer>
+  </section>
+
   <!-- ===================== LOGIN ===================== -->
-  <section class="tela tela-login" id="telaLogin">
+  <section class="tela tela-login" id="telaLogin" hidden>
     <div class="caixa-login">
+      <button type="button" class="link voltar-site" id="voltarHome">← Voltar ao site</button>
       <div class="logo"><span><span class="coroa">👑</span>✂</span></div>
       <h1>Barbearia Real</h1>
       <p class="sub">Entre para marcar seu horário e ver seus pedidos</p>
@@ -138,9 +243,21 @@
           <button type="button" data-metodo="debito">💳 Débito</button>
         </div>
 
+        <!-- Dados que o Mercado Pago pede (só aparecem quando ele está ligado) -->
+        <div class="form" id="dadosPagador" hidden>
+          <label>E-mail para o comprovante
+            <input type="email" id="pagEmail" autocomplete="email" placeholder="seuemail@exemplo.com">
+          </label>
+          <label id="campoCpf">CPF do dono do cartão
+            <input id="pagCpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
+          </label>
+        </div>
+
         <!-- Pix -->
         <div id="painelPix" class="form" hidden>
+          <button type="button" class="btn-principal" id="btnGerarPix" hidden>Gerar QR code do Pix</button>
           <div class="qr" id="qrPix"><span class="sub">Gerando QR code...</span></div>
+          <p class="aguardando-pix" id="aguardandoPix" hidden><span class="girando"></span> Aguardando o pagamento... a tela atualiza sozinha.</p>
           <ol class="passos-pix">
             <li>Abra o app do seu banco e escolha <strong>Pix → Ler QR code</strong></li>
             <li>Ou copie o código abaixo e use <strong>Pix copia e cola</strong></li>

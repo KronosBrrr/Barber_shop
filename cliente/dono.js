@@ -31,9 +31,10 @@ function falhou(e) {
 async function enviar(metodo, caminho, corpo, mensagem) {
   let ok = false;
   try {
-    await apiDono(metodo, caminho, corpo);
+    const r = await apiDono(metodo, caminho, corpo);
     ok = true;
-    if (mensagem) avisar(mensagem);
+    const extra = r && r.mensagem ? r.mensagem : "";   // ex.: resultado do reembolso
+    if (mensagem || extra) avisar([mensagem, extra].filter(Boolean).join(" "));
   } catch (e) { falhou(e); }
   if (tokenDono) {
     try { await recarregar(); } catch {}
@@ -49,7 +50,8 @@ const salvarConfig = () => enviar("PUT", "/api/dono/config", {
 
 // Situação do pagamento de um agendamento, para mostrar na agenda
 function seloPagamento(a) {
-  if (a.status === "cancelado" && a.pago && a.pagamento === "Pix") return `<span class="pg devolver">⚠ devolver Pix ao cliente</span>`;
+  if (a.reembolsoPendente) return `<span class="pg devolver">⚠ reembolso pendente (${esc(a.pagamento)})</span>`;
+  if (a.status !== "confirmado" && a.pagamentoDetalhe === "valor reembolsado") return `<span class="pg na_barbearia">↩ reembolsado</span>`;
   if (a.status !== "confirmado") return "";
   return {
     pago: `<span class="pg pago">✓ Pago${a.pagamentoDetalhe ? ` · ${esc(a.pagamentoDetalhe)}` : ""}</span>`,
@@ -119,7 +121,11 @@ function comissaoDe(a) {
 }
 const ganhoTotal = (id) => soma(agendamentos.filter((a) => a.barbeiroId === id), comissaoDe);
 const pagoTotal = (id) => soma(pagamentos.filter((p) => p.barbeiroId === id), (p) => p.valor);
-const saldoBarbeiro = (id) => r2(ganhoTotal(id) - pagoTotal(id));
+// Atendimentos já feitos cuja comissão ainda não foi paga ao barbeiro
+const aReceber = (id) => agendamentos
+  .filter((a) => a.barbeiroId === id && a.status === "atendido" && !a.repasseId && comissaoDe(a) > 0)
+  .sort(porHora);
+const saldoBarbeiro = (id) => r2(soma(aReceber(id), comissaoDe));
 
 function resumo(mes) {
   const at = agendamentos.filter((a) => a.status === "atendido" && a.dia.startsWith(mes));
@@ -250,7 +256,8 @@ function linhaAg(a, comData) {
        <button class="btn-peq" data-acao="transferir" data-id="${a.id}">Trocar barbeiro</button>
        <button class="btn-peq vermelho" data-acao="faltou" data-id="${a.id}">Faltou</button>
        <button class="btn-peq vermelho" data-acao="cancelarAg" data-id="${a.id}">Cancelar</button>`
-    : `<span class="status ${a.status}">${ROTULO[a.status] || esc(a.status)}</span>`;
+    : `${a.reembolsoPendente ? `<button class="btn-peq ouro" data-acao="reembolsar" data-id="${a.id}">💸 Reembolsar</button>` : ""}
+       <span class="status ${a.status}">${ROTULO[a.status] || esc(a.status)}</span>`;
   return `
   <div class="ag-linha st-${a.status}">
     <div class="ag-hora">${a.hora}${comData ? `<small>${dataCurta(a.dia)}</small>` : ""}</div>
@@ -294,6 +301,7 @@ function renderPainel() {
 
     ${pend.length ? `<div class="alerta"><span>⏳ <strong>${pend.length}</strong> atendimento(s) já passaram e ainda não foram marcados como atendido ou falta.</span><button class="btn-peq ouro" data-acao="verPendentes">Resolver</button></div>` : ""}
     ${fora.length ? `<div class="alerta vermelho"><span>⚠ <strong>${fora.length}</strong> agendamento(s) caem em dia fechado, folga do barbeiro ou fora do horário. Troque o barbeiro ou avise o cliente.</span><button class="btn-peq" data-acao="verFora">Ver</button></div>` : ""}
+    ${agendamentos.some((a) => a.reembolsoPendente) ? `<div class="alerta vermelho"><span>💸 <strong>${agendamentos.filter((a) => a.reembolsoPendente).length}</strong> pedido(s) cancelado(s) ainda precisam devolver o dinheiro ao cliente.</span><button class="btn-peq ouro" data-acao="verReembolsos">Ver</button></div>` : ""}
     ${baixo.length ? `<div class="alerta"><span>📦 Estoque baixo: ${baixo.map((p) => `<strong>${esc(p.nome)}</strong> (${estoqueDisponivel(p, agendamentos)})`).join(", ")}</span><button class="btn-peq" data-acao="irCatalogo">Repor</button></div>` : ""}
 
     <div class="indicadores">
@@ -335,6 +343,7 @@ ACOES.irAgenda = () => { fAg = { dia: hojeIso(), barbeiro: "todos", status: "tod
 ACOES.irBarbeiros = () => { abaAtual = "barbeiros"; renderAba(); };
 ACOES.irCatalogo = () => { abaAtual = "catalogo"; renderAba(); };
 ACOES.verPendentes = () => { fAg = { dia: "", barbeiro: "todos", status: "pendente" }; abaAtual = "agenda"; renderAba(); };
+ACOES.verReembolsos = () => { fAg = { dia: "", barbeiro: "todos", status: "reembolso" }; abaAtual = "agenda"; renderAba(); };
 ACOES.verFora = () => { fAg = { dia: "", barbeiro: "todos", status: "fora" }; abaAtual = "agenda"; renderAba(); };
 
 // =====================================================================
@@ -346,6 +355,7 @@ function renderAgenda() {
   let lista = agendamentos.slice();
   if (fAg.status === "pendente") lista = lista.filter(pendente);
   else if (fAg.status === "fora") lista = lista.filter((a) => a.dia >= hojeIso() && foraDoHorario(a));
+  else if (fAg.status === "reembolso") lista = lista.filter((a) => a.reembolsoPendente);
   else {
     if (fAg.dia) lista = lista.filter((a) => a.dia === fAg.dia);
     else lista = lista.filter((a) => a.dia >= hojeIso());
@@ -354,11 +364,12 @@ function renderAgenda() {
   if (fAg.barbeiro !== "todos") lista = lista.filter((a) => a.barbeiroId === fAg.barbeiro);
   lista.sort(porHora);
 
-  const comData = !fAg.dia || ["pendente", "fora"].includes(fAg.status);
+  const comData = !fAg.dia || ["pendente", "fora", "reembolso"].includes(fAg.status);
   const validos = lista.filter((a) => a.status !== "cancelado" && a.status !== "faltou");
   let titulo = "Próximos agendamentos";
   if (fAg.status === "pendente") titulo = "Atendimentos pendentes de confirmação";
   else if (fAg.status === "fora") titulo = "Agendamentos fora do horário";
+  else if (fAg.status === "reembolso") titulo = "Reembolsos pendentes";
   else if (fAg.dia) {
     const d = dataDe(fAg.dia), c = CONFIG.funcionamento.semana[d.getDay()];
     titulo = `${dataBonita(fAg.dia)} <span class="sub">· ${lojaAbertaNoDia(d) ? `${c.abre}–${c.fecha}` : "fechado"}</span>`;
@@ -381,7 +392,7 @@ function renderAgenda() {
         ${CONFIG.barbeiros.map((b) => `<option value="${b.id}" ${fAg.barbeiro === b.id ? "selected" : ""}>${esc(b.nome)}${b.ativo === false ? " (desligado)" : ""}</option>`).join("")}
       </select>
       <select data-mudar="agStatus">
-        ${[["todos", "Todas as situações"], ["confirmado", "Agendados"], ["atendido", "Atendidos"], ["faltou", "Faltas"], ["cancelado", "Cancelados"], ["pendente", "⏳ Pendentes"], ["fora", "⚠ Fora do horário"]]
+        ${[["todos", "Todas as situações"], ["confirmado", "Agendados"], ["atendido", "Atendidos"], ["faltou", "Faltas"], ["cancelado", "Cancelados"], ["pendente", "⏳ Pendentes"], ["fora", "⚠ Fora do horário"], ["reembolso", "💸 Reembolsos pendentes"]]
           .map(([v, t]) => `<option value="${v}" ${fAg.status === v ? "selected" : ""}>${t}</option>`).join("")}
       </select>
     </div>
@@ -396,14 +407,14 @@ function moverDia(delta) {
   const d = dataDe(fAg.dia || hojeIso());
   d.setDate(d.getDate() + delta);
   fAg.dia = chaveDia(d);
-  if (["pendente", "fora"].includes(fAg.status)) fAg.status = "todos";
+  if (["pendente", "fora", "reembolso"].includes(fAg.status)) fAg.status = "todos";
   renderAgenda();
 }
 ACOES.diaAnt = () => moverDia(-1);
 ACOES.diaProx = () => moverDia(1);
-ACOES.agHoje = () => { fAg.dia = hojeIso(); if (["pendente", "fora"].includes(fAg.status)) fAg.status = "todos"; renderAgenda(); };
+ACOES.agHoje = () => { fAg.dia = hojeIso(); if (["pendente", "fora", "reembolso"].includes(fAg.status)) fAg.status = "todos"; renderAgenda(); };
 ACOES.agTodas = () => { fAg.dia = ""; fAg.status = "todos"; renderAgenda(); };
-MUDAR.agDia = (el) => { fAg.dia = el.value; if (["pendente", "fora"].includes(fAg.status)) fAg.status = "todos"; renderAgenda(); };
+MUDAR.agDia = (el) => { fAg.dia = el.value; if (["pendente", "fora", "reembolso"].includes(fAg.status)) fAg.status = "todos"; renderAgenda(); };
 MUDAR.agBarb = (el) => { fAg.barbeiro = el.value; renderAgenda(); };
 MUDAR.agStatus = (el) => { fAg.status = el.value; renderAgenda(); };
 
@@ -441,6 +452,27 @@ ACOES.confirmarPix = (id) => {
   const a = agPorId(id);
   if (!confirm(`Confirma que o Pix de ${real(totalAg(a))} de ${a.cliente} caiu na conta?\n\nConfira no app do banco antes.`)) return;
   enviar("POST", `/api/dono/agendamentos/${a.id}/confirmar-pix`, {}, "Pix confirmado. O cliente já vê o pedido como pago.");
+};
+
+ACOES.salvarMP = async (_, botao) => {
+  botao.disabled = true;
+  botao.textContent = "Conferindo...";
+  await enviar("PUT", "/api/dono/mercadopago", { publicKey: $("mpPublica").value.trim(), accessToken: $("mpToken").value.trim() });
+  botao.disabled = false;
+};
+ACOES.removerMP = () => {
+  if (!confirm("Desligar o Mercado Pago? O cartão volta para o modo de teste e o Pix volta a usar a chave da barbearia.")) return;
+  enviar("PUT", "/api/dono/mercadopago", { remover: true });
+};
+
+ACOES.reembolsar = (id) => {
+  const a = agPorId(id);
+  const porPix = a.pagamento === "Pix" && a.pagamentoDetalhe !== "Pix via Mercado Pago";
+  const texto = porPix
+    ? `O Pix de ${real(totalAg(a))} foi direto para a chave da barbearia, então a devolução é feita por você pelo app do banco.\n\nJá devolveu o Pix para ${a.cliente}? Clique OK para marcar como devolvido.`
+    : `Devolver ${real(totalAg(a))} para ${a.cliente}? O reembolso é feito pelo ${a.pagamentoDetalhe ? "mesmo meio de pagamento" : "cartão"}.`;
+  if (!confirm(texto)) return;
+  enviar("POST", `/api/dono/agendamentos/${a.id}/reembolsar`, {});
 };
 
 ACOES.salvarPix = () => {
@@ -536,6 +568,12 @@ ACOES.novoAg = () => {
 // =====================================================================
 //  BARBEIROS
 // =====================================================================
+function avatarBarb(b, classe = "grande") {
+  return b.foto
+    ? `<img class="avatar ${classe} foto" src="${esc(b.foto)}" alt="Foto de ${esc(b.nome)}">`
+    : `<span class="avatar ${classe}">${esc(b.nome[0])}</span>`;
+}
+
 function renderBarbeiros() {
   const mes = mesAtual();
   const lista = ativos(CONFIG.barbeiros);
@@ -550,12 +588,14 @@ function renderBarbeiros() {
     <div class="cards-barb">
       ${lista.map((b) => {
         const atMes = agendamentos.filter((a) => a.barbeiroId === b.id && a.status === "atendido" && a.dia.startsWith(mes));
+        const pendentes = aReceber(b.id);
         const saldo = saldoBarbeiro(b.id);
         const abertos = agendamentos.filter((a) => a.barbeiroId === b.id && a.status === "confirmado").length;
+        const ultimo = pagamentos.filter((p) => p.barbeiroId === b.id).sort((x, y) => y.data.localeCompare(x.data))[0];
         return `
         <div class="card-barb">
           <div class="topo-b">
-            <span class="avatar grande">${esc(b.nome[0])}</span>
+            ${avatarBarb(b)}
             <div><h3>${esc(b.nome)}</h3><p class="sub">${esc(b.especialidade || "")}</p><p class="sub">${b.telefone ? `${fmtTel(b.telefone)} · ${linkZap(b.telefone)}` : ""}</p></div>
           </div>
           <div class="dados">
@@ -565,10 +605,15 @@ function renderBarbeiros() {
             <div><span>Ganhou no mês</span>${real(soma(atMes, comissaoDe))}</div>
           </div>
           <div class="saldo ${saldo <= 0.009 ? "zerado" : ""}">
-            <span>${saldo < -0.009 ? "Adiantado" : saldo > 0.009 ? "A pagar" : "Pagamento em dia"}</span>
-            <strong>${real(Math.abs(saldo))}</strong>
+            <span>${saldo > 0.009 ? `A pagar · ${pendentes.length} atendimento(s)` : "✓ Tudo pago"}</span>
+            <strong>${real(saldo)}</strong>
           </div>
-          <p class="sub">${abertos} agendamento(s) em aberto</p>
+          <p class="sub">
+            ${ultimo ? `Último pagamento: ${dataCurta(ultimo.data)} (${real(ultimo.valor)})` : "Nenhum pagamento ainda"} ·
+            ${abertos} agendamento(s) em aberto<br>
+            ${b.temAcesso ? `🔑 Acessa o painel do barbeiro com ${fmtTel(b.telefone)}` : `<span style="color:var(--perigo)">⚠ Sem acesso ao painel: edite e crie uma senha</span>`}<br>
+            ${b.chavePix ? `⚡ Pix: ${esc(b.chavePix)}` : `<span class="sub">Sem chave Pix (cadastre para pagar pelo site)</span>`}
+          </p>
           <div class="botoes">
             <button class="btn-peq ouro" data-acao="pagar" data-id="${b.id}">💵 Pagar</button>
             <button class="btn-peq" data-acao="histPag" data-id="${b.id}">Pagamentos</button>
@@ -583,7 +628,7 @@ function renderBarbeiros() {
     <div class="bloco" style="margin-top:20px">
       <h2>Barbeiros desligados</h2>
       <div class="tabela-wrap"><table>
-        <tr><th>Nome</th><th>Saiu em</th><th class="num">Saldo</th><th></th></tr>
+        <tr><th>Nome</th><th>Saiu em</th><th class="num">A receber</th><th></th></tr>
         ${desligados.map((b) => `<tr>
           <td>${esc(b.nome)}</td><td>${b.desligadoEm ? dataCurta(b.desligadoEm) : "—"}</td>
           <td class="num">${real(saldoBarbeiro(b.id))}</td>
@@ -593,12 +638,28 @@ function renderBarbeiros() {
     </div>` : ""}`;
 }
 
+// ---- Formulário de cadastro / edição do barbeiro (com foto e acesso ao painel)
+let fotoEscolhida; // undefined = não mexeu · null = remover · texto = foto nova
+
 function formBarbeiro(b = {}) {
+  const novo = !b.id;
   return `
+    <div class="foto-campo">
+      <div id="fotoPrevia">${b.nome ? avatarBarb(b, "enorme") : `<span class="avatar enorme">📷</span>`}</div>
+      <div class="botoes">
+        <label class="btn-peq ouro" style="cursor:pointer">📷 ${b.foto ? "Trocar foto" : "Escolher foto"}<input type="file" accept="image/*" id="fotoArquivo" hidden></label>
+        <button type="button" class="btn-peq vermelho" id="fotoRemover" ${b.foto ? "" : "hidden"}>Remover foto</button>
+      </div>
+      <p class="sub">A foto aparece para os clientes na hora de escolher o barbeiro.</p>
+    </div>
     <label>Nome<input name="nome" required value="${esc(b.nome || "")}"></label>
     <div class="dupla">
-      <label>WhatsApp<input name="telefone" type="tel" value="${esc(fmtTel(b.telefone) === "—" ? "" : fmtTel(b.telefone))}"></label>
+      <label>WhatsApp (é o login dele)<input name="telefone" type="tel" ${novo ? "required" : ""} placeholder="(00) 00000-0000" value="${esc(fmtTel(b.telefone) === "—" ? "" : fmtTel(b.telefone))}"></label>
+      <label>${novo ? "Senha de acesso" : "Nova senha (vazio = manter)"}<input name="novaSenha" type="password" autocomplete="new-password" minlength="4" ${novo ? "required" : ""} placeholder="${novo ? "Mínimo 4 caracteres" : "••••"}"></label>
+    </div>
+    <div class="dupla">
       <label>Especialidade<input name="especialidade" value="${esc(b.especialidade || "")}" placeholder="Ex.: Degradê"></label>
+      <label>Chave Pix dele<input name="chavePix" value="${esc(b.chavePix || "")}" placeholder="CPF, e-mail, +55 telefone..."></label>
     </div>
     <div class="dupla">
       <label>Comissão nos serviços (%)<input type="number" name="comissao" min="0" max="100" step="1" required value="${b.comissao ?? 50}"></label>
@@ -609,13 +670,52 @@ function formBarbeiro(b = {}) {
       <div class="dias-check">${DIAS_SEMANA.map((d, i) =>
         `<label><input type="checkbox" name="folga" value="${i}" ${(b.folga || []).includes(i) ? "checked" : ""}>${d.slice(0, 3)}</label>`).join("")}</div>
     </div>
-    ${b.id ? `<p class="sub">Mudanças na comissão valem para os próximos atendimentos. Os já feitos continuam com o valor da época.</p>` : ""}`;
+    <p class="sub">${novo ? "Com o WhatsApp e a senha, ele entra em <strong>/barbeiro</strong> para ver a agenda e quanto vai receber."
+      : "Mudanças na comissão valem para os próximos atendimentos. Os já feitos continuam com o valor da época."}</p>`;
+}
+
+// Diminui a foto (quadrada, 480 px) antes de enviar, para o site continuar rápido
+function reduzirFoto(arquivo) {
+  return new Promise((ok, falha) => {
+    if (!arquivo.type.startsWith("image/")) return falha(new Error("Escolha um arquivo de imagem."));
+    const img = new Image();
+    img.onload = () => {
+      const lado = Math.min(img.width, img.height), tam = Math.min(480, lado);
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = tam;
+      canvas.getContext("2d").drawImage(img, (img.width - lado) / 2, (img.height - lado) / 2, lado, lado, 0, 0, tam, tam);
+      URL.revokeObjectURL(img.src);
+      ok(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => falha(new Error("Não foi possível abrir essa imagem."));
+    img.src = URL.createObjectURL(arquivo);
+  });
+}
+
+function prepararCampoFoto(b = {}) {
+  fotoEscolhida = undefined;
+  $("fotoArquivo").addEventListener("change", async (e) => {
+    const arq = e.target.files[0];
+    if (!arq) return;
+    try {
+      fotoEscolhida = await reduzirFoto(arq);
+      $("fotoPrevia").innerHTML = `<img class="avatar enorme foto" src="${fotoEscolhida}" alt="">`;
+      $("fotoRemover").hidden = false;
+    } catch (er) { avisar(er.message); }
+  });
+  $("fotoRemover").addEventListener("click", () => {
+    fotoEscolhida = null;
+    $("fotoPrevia").innerHTML = `<span class="avatar enorme">${esc((b.nome || "📷")[0])}</span>`;
+    $("fotoRemover").hidden = true;
+  });
 }
 
 function lerFormBarbeiro(fd) {
   return {
     nome: fd.get("nome").trim(),
     telefone: soDigitos(fd.get("telefone")),
+    novaSenha: fd.get("novaSenha"),
+    chavePix: fd.get("chavePix").trim(),
     especialidade: fd.get("especialidade").trim(),
     comissao: Number(fd.get("comissao")),
     comissaoProdutos: Number(fd.get("comissaoProdutos")),
@@ -623,16 +723,37 @@ function lerFormBarbeiro(fd) {
   };
 }
 
-ACOES.novoBarb = () => abrirModal({
-  titulo: "Adicionar barbeiro",
-  ok: "Adicionar",
-  corpo: formBarbeiro(),
-  aoSalvar: (fd) => {
-    const dados = lerFormBarbeiro(fd);
-    CONFIG.barbeiros.push({ id: novoId("b"), ...dados, ativo: true, entrouEm: hojeIso() });
-    salvarConfig(); avisar(`${dados.nome} foi adicionado. Já aparece para os clientes.`); renderAba();
-  },
-});
+function validarBarbeiro(d, novo) {
+  if (d.telefone && ![10, 11].includes(d.telefone.length)) return "Digite o WhatsApp com DDD.";
+  if ((novo || d.novaSenha) && !d.telefone) return "Digite o WhatsApp: ele é o login do barbeiro.";
+  if (novo && !d.novaSenha) return "Crie uma senha para o barbeiro.";
+  if (d.novaSenha && d.novaSenha.length < 4) return "A senha precisa ter pelo menos 4 caracteres.";
+  return "";
+}
+
+async function salvarBarbeiro(id, mensagem) {
+  const foto = fotoEscolhida;
+  if (!(await salvarConfig())) return;
+  if (foto !== undefined) await enviar("PUT", `/api/dono/barbeiros/${id}/foto`, { imagem: foto });
+  avisar(mensagem);
+}
+
+ACOES.novoBarb = () => {
+  abrirModal({
+    titulo: "Adicionar barbeiro",
+    ok: "Adicionar",
+    corpo: formBarbeiro(),
+    aoSalvar: (fd) => {
+      const dados = lerFormBarbeiro(fd);
+      const erro = validarBarbeiro(dados, true);
+      if (erro) { avisar(erro); return false; }
+      const id = novoId("b");
+      CONFIG.barbeiros.push({ id, ...dados, ativo: true, entrouEm: hojeIso() });
+      salvarBarbeiro(id, `${dados.nome} foi adicionado. Já aparece para os clientes e pode entrar no painel dele.`);
+    },
+  });
+  prepararCampoFoto();
+};
 
 ACOES.editarBarb = (id) => {
   const b = barbeiro(id);
@@ -640,13 +761,15 @@ ACOES.editarBarb = (id) => {
     titulo: `Editar ${b.nome}`,
     corpo: formBarbeiro(b),
     aoSalvar: (fd) => {
-      Object.assign(b, lerFormBarbeiro(fd));
-      salvarConfig();
+      const dados = lerFormBarbeiro(fd);
+      const erro = validarBarbeiro(dados, false);
+      if (erro) { avisar(erro); return false; }
+      Object.assign(b, dados);
       const conflito = agendamentos.filter((a) => a.barbeiroId === b.id && a.dia >= hojeIso() && foraDoHorario(a)).length;
-      avisar(conflito ? `Salvo. Atenção: ${conflito} agendamento(s) caem na folga nova.` : "Barbeiro atualizado.");
-      renderAba();
+      salvarBarbeiro(b.id, conflito ? `Salvo. Atenção: ${conflito} agendamento(s) caem na folga nova.` : "Barbeiro atualizado.");
     },
   });
+  prepararCampoFoto(b);
 };
 
 ACOES.removerBarb = (id) => {
@@ -657,7 +780,7 @@ ACOES.removerBarb = (id) => {
     abrirModal({
       titulo: "Ainda não dá para remover",
       ok: "Pagar agora",
-      corpo: `<div class="alerta vermelho"><span>${esc(b.nome)} ainda tem <strong>${real(saldo)}</strong> a receber. Para tirar o barbeiro do sistema, faça o pagamento antes.</span></div>`,
+      corpo: `<div class="alerta vermelho"><span>${esc(b.nome)} ainda tem <strong>${real(saldo)}</strong> a receber (${aReceber(id).length} atendimento(s)). Para tirar o barbeiro do sistema, faça o pagamento antes.</span></div>`,
       aoSalvar: () => ACOES.pagar(id),
     });
     return;
@@ -676,11 +799,10 @@ ACOES.removerBarb = (id) => {
     ok: "Remover barbeiro",
     corpo: `
       <div class="info-caixa">
-        <span>✓ Pagamentos em dia</span>
+        <span>✓ Todos os atendimentos pagos</span>
         <span>✓ Nenhum agendamento em aberto</span>
-        ${saldo < -0.009 ? `<span style="color:var(--perigo)">⚠ Ele recebeu ${real(-saldo)} a mais (adiantamento).</span>` : ""}
       </div>
-      <p class="sub">Ele deixa de aparecer para os clientes. O histórico de atendimentos e pagamentos continua guardado, e você pode reativá-lo depois.</p>`,
+      <p class="sub">Ele deixa de aparecer para os clientes e perde o acesso ao painel. O histórico de atendimentos e pagamentos continua guardado, e você pode reativá-lo depois.</p>`,
     aoSalvar: () => {
       enviar("POST", `/api/dono/barbeiros/${b.id}/remover`, {}, `${b.nome} foi removido do sistema.`);
     },
@@ -692,54 +814,114 @@ ACOES.reativarBarb = (id) => {
   enviar("POST", `/api/dono/barbeiros/${b.id}/reativar`, {}, `${b.nome} voltou para a equipe.`);
 };
 
+// ---- Pagar o barbeiro: o dono marca quais atendimentos está pagando
 ACOES.pagar = (id) => {
-  const b = barbeiro(id), saldo = saldoBarbeiro(id);
+  const b = barbeiro(id), lista = aReceber(id);
+  if (!lista.length) {
+    abrirModal({ titulo: `Pagar ${b.nome}`, cancelar: false, ok: "Fechar",
+      corpo: `<div class="info-caixa"><span>✓ Todos os atendimentos de ${esc(b.nome)} já foram pagos.</span></div>` });
+    return;
+  }
+  const formas = [["Pix pelo site", "⚡ Pix pelo site (gera QR code)"], ["Pix", "Pix (pelo app do banco)"], ["Dinheiro", "Dinheiro"], ["Transferência", "Transferência"]]
+    .filter(([v]) => v !== "Pix pelo site" || b.chavePix);
   abrirModal({
     titulo: `Pagar ${b.nome}`,
-    ok: "Registrar pagamento",
+    ok: "Continuar",
     corpo: `
-      <div class="info-caixa">
-        <span>Total ganho em comissões: <strong>${real(ganhoTotal(id))}</strong></span>
-        <span>Já pago: <strong>${real(pagoTotal(id))}</strong></span>
-        <span>Saldo a pagar: <strong style="color:var(--destaque)">${real(Math.max(0, saldo))}</strong></span>
-      </div>
+      <p class="sub">Marque os atendimentos que você está pagando agora. Eles ficam registrados como pagos, e o barbeiro vê isso no painel dele.</p>
+      <div class="tabela-wrap" style="max-height:260px;overflow-y:auto"><table>
+        <tr><th><input type="checkbox" id="marcarTodos" checked aria-label="Marcar todos"></th><th>Data</th><th>Atendimento</th><th class="num">Comissão</th></tr>
+        ${lista.map((a) => `<tr>
+          <td><input type="checkbox" name="ag" value="${a.id}" checked></td>
+          <td>${dataCurta(a.dia)}<br><span class="sub">${a.hora}</span></td>
+          <td>${esc(a.servico)}<br><span class="sub">${esc(a.cliente)}</span></td>
+          <td class="num">${real(comissaoDe(a))}</td></tr>`).join("")}
+      </table></div>
+      <div class="saldo"><span>Total a pagar agora</span><strong id="totalRepasse">${real(soma(lista, comissaoDe))}</strong></div>
       <div class="dupla">
-        <label>Valor (R$)<input type="number" name="valor" min="0.01" step="0.01" required value="${saldo > 0 ? saldo.toFixed(2) : ""}"></label>
+        <label>Como vai pagar<select name="forma">${formas.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select></label>
         <label>Data<input type="date" name="data" required value="${hojeIso()}"></label>
       </div>
-      <label>Forma<select name="forma">${["Pix", "Dinheiro", "Transferência"].map((f) => `<option>${f}</option>`).join("")}</select></label>
-      <label>Observação<input name="obs" placeholder="Ex.: comissões da semana"></label>
-      <p class="sub">Pagar mais que o saldo fica registrado como adiantamento.</p>`,
+      ${b.chavePix ? "" : `<p class="sub">Para pagar pelo site com QR code, cadastre a chave Pix de ${esc(b.nome)} em Editar.</p>`}
+      <label>Observação<input name="obs" placeholder="Ex.: comissões da semana"></label>`,
     aoSalvar: (fd) => {
-      const valor = r2(Number(fd.get("valor")));
-      if (!(valor > 0)) { avisar("Digite um valor válido."); return false; }
-      enviar("POST", "/api/dono/pagamentos", { barbeiroId: id, valor, data: fd.get("data"), forma: fd.get("forma"), obs: fd.get("obs") },
-        `Pagamento de ${real(valor)} para ${b.nome} registrado.`);
+      const ids = fd.getAll("ag").map(Number);
+      if (!ids.length) { avisar("Marque pelo menos um atendimento."); return false; }
+      const valor = r2(soma(lista.filter((a) => ids.includes(a.id)), comissaoDe));
+      const pedido = { barbeiroId: id, agendamentoIds: ids, forma: fd.get("forma"), data: fd.get("data"), obs: fd.get("obs") };
+      if (pedido.forma === "Pix pelo site") { pagarPorPix(b, pedido, valor); return; }
+      enviar("POST", "/api/dono/pagamentos", pedido, `Pagamento de ${real(valor)} para ${b.nome} registrado (${ids.length} atendimento(s)).`);
     },
   });
+  const atualizarTotal = () => {
+    const ids = [...$("modalCorpo").querySelectorAll('input[name="ag"]:checked')].map((x) => Number(x.value));
+    $("totalRepasse").textContent = real(soma(lista.filter((a) => ids.includes(a.id)), comissaoDe));
+  };
+  $("modalCorpo").querySelectorAll('input[name="ag"]').forEach((x) => x.addEventListener("change", atualizarTotal));
+  $("marcarTodos").addEventListener("change", (e) => {
+    $("modalCorpo").querySelectorAll('input[name="ag"]').forEach((x) => (x.checked = e.target.checked));
+    atualizarTotal();
+  });
+};
+
+// Mostra o QR code Pix com a chave do barbeiro e o valor certo; o dono paga pelo app do banco
+async function pagarPorPix(b, pedido, valor) {
+  let pix;
+  try { pix = await apiDono("POST", `/api/dono/barbeiros/${b.id}/pix`, { valor }); }
+  catch (e) { falhou(e); return; }
+  abrirModal({
+    titulo: `Pagar ${b.nome} por Pix`,
+    ok: "✓ Já paguei, registrar",
+    corpo: `
+      <div class="valor-grande"><span class="sub">Valor</span><strong>${real(valor)}</strong></div>
+      <div class="qr" id="qrBarbeiro"></div>
+      <ol class="passos-pix">
+        <li>Abra o app do seu banco e escolha <strong>Pix → Ler QR code</strong></li>
+        <li>Confira: <strong>${esc(pix.nome)}</strong> · chave ${esc(pix.chave)}</li>
+        <li>Depois de pagar, clique em <strong>Já paguei, registrar</strong></li>
+      </ol>
+      <div class="copia-cola"><input id="pixBarbCodigo" readonly value="${esc(pix.codigo)}"><button type="button" class="btn-secundario" data-acao="copiarPixBarb">Copiar</button></div>`,
+    aoSalvar: () => {
+      enviar("POST", "/api/dono/pagamentos", pedido, `Pagamento de ${real(valor)} para ${b.nome} registrado.`);
+    },
+  });
+  if (window.qrcode) {
+    const q = qrcode(0, "M"); q.addData(pix.codigo); q.make();
+    $("qrBarbeiro").innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+  } else $("qrBarbeiro").innerHTML = `<span style="color:#333;font-size:.85rem">Sem internet para desenhar o QR. Use o copia e cola.</span>`;
+}
+
+ACOES.copiarPixBarb = async () => {
+  const campo = $("pixBarbCodigo");
+  try { await navigator.clipboard.writeText(campo.value); } catch { campo.select(); document.execCommand("copy"); }
+  avisar("Código Pix copiado!");
 };
 
 ACOES.histPag = (id) => {
   const b = barbeiro(id);
   const lista = pagamentos.filter((p) => p.barbeiroId === id).sort((x, y) => y.data.localeCompare(x.data));
+  const pend = aReceber(id);
   abrirModal({
     titulo: `Pagamentos — ${b.nome}`,
     cancelar: false, ok: "Fechar",
-    corpo: lista.length ? `
+    corpo: `
+      <div class="saldo ${pend.length ? "" : "zerado"}"><span>${pend.length ? `A receber · ${pend.length} atendimento(s)` : "✓ Tudo pago"}</span><strong>${real(saldoBarbeiro(id))}</strong></div>
+      ${lista.length ? `
       <div class="tabela-wrap"><table>
-        <tr><th>Data</th><th>Forma</th><th class="num">Valor</th><th></th></tr>
+        <tr><th>Data</th><th>Forma</th><th class="num">Atend.</th><th class="num">Valor</th><th></th></tr>
         ${lista.map((p) => `<tr><td>${dataCurta(p.data)}${p.obs ? `<br><span class="sub">${esc(p.obs)}</span>` : ""}</td><td>${esc(p.forma)}</td>
+          <td class="num">${agendamentos.filter((a) => a.repasseId === p.id).length}</td>
           <td class="num">${real(p.valor)}</td>
-          <td class="num"><button type="button" class="btn-peq vermelho" data-acao="excluirPag" data-id="${p.id}">Excluir</button></td></tr>`).join("")}
+          <td class="num"><button type="button" class="btn-peq vermelho" data-acao="excluirPag" data-id="${p.id}">Desfazer</button></td></tr>`).join("")}
       </table></div>
-      <p class="sub">Saldo atual: ${real(saldoBarbeiro(id))}</p>` : vazio("Nenhum pagamento registrado ainda."),
+      <p class="sub">“Desfazer” apaga um pagamento registrado por engano: os atendimentos dele voltam a ficar “a receber”.</p>` : vazio("Nenhum pagamento registrado ainda.")}`,
   });
 };
 
 ACOES.excluirPag = (id) => {
   const p = pagamentos.find((x) => x.id === id);
-  if (!p || !confirm(`Excluir o pagamento de ${real(p.valor)} (${dataCurta(p.data)})?`)) return;
-  enviar("DELETE", `/api/dono/pagamentos/${id}`, undefined, "Pagamento excluído.").then(() => ACOES.histPag(p.barbeiroId));
+  if (!p || !confirm(`Desfazer o pagamento de ${real(p.valor)} (${dataCurta(p.data)})?\nOs atendimentos dele voltam a ficar "a receber".`)) return;
+  enviar("DELETE", `/api/dono/pagamentos/${id}`, undefined, "Pagamento desfeito.").then(() => ACOES.histPag(p.barbeiroId));
 };
 
 // =====================================================================
@@ -873,6 +1055,22 @@ function renderHorarios() {
 
   $("conteudo").innerHTML = `
     <div class="cab"><h1>Funcionamento</h1></div>
+
+    <div class="bloco">
+      <h2>🤝 Mercado Pago ${CONFIG.pagamentos.mpTokenFinal ? `<span class="pg pago">✓ conectado ${CONFIG.pagamentos.mpTeste ? "(modo de teste)" : "(cobrando de verdade)"}</span>` : `<span class="pg na_barbearia">desligado</span>`}</h2>
+      <p class="sub" style="margin-bottom:12px">Com o Mercado Pago ligado, o cartão cobra de verdade, o Pix é confirmado sozinho
+        e o <strong>reembolso</strong> volta automático para o cliente quando um pedido pago é cancelado.
+        Pegue as credenciais em <strong>mercadopago.com.br/developers → Suas integrações → Credenciais</strong>.
+        Para testar sem dinheiro de verdade, use as credenciais de <strong>teste</strong> (começam com TEST-).</p>
+      <div class="form-linha">
+        <label>Public Key<input id="mpPublica" value="${esc(CONFIG.pagamentos.mpPublicKey || "")}" placeholder="APP_USR-... ou TEST-..."></label>
+        <label>Access Token<input id="mpToken" type="password" autocomplete="off"
+          placeholder="${CONFIG.pagamentos.mpTokenFinal ? `guardado (…${esc(CONFIG.pagamentos.mpTokenFinal)}). Deixe vazio para manter` : "APP_USR-... ou TEST-..."}"></label>
+        <button class="btn-principal" data-acao="salvarMP">Conectar</button>
+        ${CONFIG.pagamentos.mpTokenFinal ? `<button class="btn-peq vermelho" data-acao="removerMP">Desligar</button>` : ""}
+      </div>
+      <p class="sub" style="margin-top:10px">🔒 O Access Token fica só no servidor e nunca aparece de novo na tela.</p>
+    </div>
 
     <div class="bloco">
       <h2>💰 Pagamentos dos clientes</h2>

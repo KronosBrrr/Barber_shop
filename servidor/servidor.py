@@ -29,14 +29,15 @@ import pagamentos as pag
 
 PASTA = os.path.dirname(os.path.abspath(__file__))
 PASTA_SITE = os.path.normpath(os.path.join(PASTA, "..", "cliente"))
-BANCO = os.path.join(PASTA, "barbearia.db")
+BANCO = os.environ.get("BARBEARIA_BANCO") or os.path.join(PASTA, "barbearia.db")  # outro arquivo só para testes
 SCHEMA = os.path.join(PASTA, "schema.sql")
 PORTA = int(os.environ.get("PORTA", "8000"))
 
 DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
 FORMAS_APP = ["Pix", "Cartão de crédito", "Cartão de débito", "Pagar na barbearia"]
 FORMAS_BALCAO = ["Dinheiro", "Pix", "Cartão de débito", "Cartão de crédito"]
-FORMAS_PAG_BARBEIRO = ["Pix", "Dinheiro", "Transferência"]
+FORMAS_PAG_BARBEIRO = ["Pix pelo site", "Pix", "Dinheiro", "Transferência"]
+FOTO_MAX_BYTES = 1_500_000
 INTERVALOS = [15, 20, 30, 40, 45, 60]
 MAX_PARCELAS = 3
 
@@ -193,10 +194,28 @@ def autenticar(db, token, tipo):
     s = db.execute("SELECT * FROM sessoes WHERE token = ? AND tipo = ?", (token, tipo)).fetchone() if token else None
     if not s or s["expira_em"] < agora().isoformat():
         raise Erro("Sua sessão expirou. Faça login novamente.", 401)
+    if tipo == "barbeiro":
+        if not db.execute("SELECT 1 FROM barbeiros WHERE id = ? AND ativo = 1 AND senha_hash IS NOT NULL", (s["usuario_id"],)).fetchone():
+            raise Erro("Acesso do barbeiro desativado. Fale com o dono.", 401)
+        return s["usuario_id"]
     tabela = "clientes" if tipo == "cliente" else "donos"
-    if not db.execute(f"SELECT 1 FROM {tabela} WHERE id = ?", (s["usuario_id"],)).fetchone():
+    usuario_id = int(s["usuario_id"])
+    if not db.execute(f"SELECT 1 FROM {tabela} WHERE id = ?", (usuario_id,)).fetchone():
         raise Erro("Conta não encontrada. Faça login novamente.", 401)
-    return s["usuario_id"]
+    return usuario_id
+
+
+# =====================================================================
+#  Provedores de pagamento
+# =====================================================================
+def mercado_pago(db):
+    """Devolve o Mercado Pago se o dono cadastrou as credenciais; senão None."""
+    token = cfg_valor(db, "mp_access_token", "")
+    return pag.MercadoPago(token) if token else None
+
+
+def provedor_cartao(db):
+    return mercado_pago(db) or pag.PROVEDOR_CARTAO
 
 
 # =====================================================================
@@ -236,10 +255,11 @@ def ler_config(db, completo):
     barbeiros = []
     for r in db.execute(f"SELECT * FROM barbeiros{onde} ORDER BY rowid"):
         b = {"id": r["id"], "nome": r["nome"], "especialidade": r["especialidade"],
-             "folga": json.loads(r["folga"]), "ativo": bool(r["ativo"])}
+             "folga": json.loads(r["folga"]), "ativo": bool(r["ativo"]), "foto": url_foto(r)}
         if completo:
             b.update(telefone=r["telefone"], comissao=r["comissao"], comissaoProdutos=r["comissao_produtos"],
-                     entrouEm=r["entrou_em"], desligadoEm=r["desligado_em"])
+                     entrouEm=r["entrou_em"], desligadoEm=r["desligado_em"], chavePix=r["chave_pix"],
+                     temAcesso=bool(r["senha_hash"]))
         barbeiros.append(b)
     res = reservados(db)
     produtos = []
@@ -251,10 +271,17 @@ def ler_config(db, completo):
             p.update(custo=r["custo"], estoque=r["estoque"])
         produtos.append(p)
     chave = cfg_valor(db, "pix_chave", "")
-    pagamentos = {"pixAtivo": bool(chave), "modoCartao": pag.PROVEDOR_CARTAO.nome, "maxParcelas": MAX_PARCELAS,
-                  "recebedor": cfg_valor(db, "pix_recebedor", "")}
+    mp = bool(cfg_valor(db, "mp_access_token", ""))
+    pagamentos = {"pixAtivo": bool(chave) or mp, "pixAutomatico": mp,
+                  "modoCartao": "mercadopago" if mp else pag.PROVEDOR_CARTAO.nome,
+                  "mpPublicKey": cfg_valor(db, "mp_public_key", "") if mp else "",
+                  "maxParcelas": MAX_PARCELAS, "recebedor": cfg_valor(db, "pix_recebedor", "")}
     if completo:
-        pagamentos.update(chavePix=chave, cidade=cfg_valor(db, "pix_cidade", ""))
+        token = cfg_valor(db, "mp_access_token", "")
+        pagamentos.update(chavePix=chave, cidade=cfg_valor(db, "pix_cidade", ""),
+                          mpPublicKey=cfg_valor(db, "mp_public_key", ""),
+                          mpTokenFinal=token[-6:] if token else "",          # nunca devolve o token inteiro
+                          mpTeste=token.startswith("TEST-"))
     return {"servicos": servicos, "barbeiros": barbeiros, "produtos": produtos,
             "funcionamento": ler_funcionamento(db), "pagamentos": pagamentos}
 
@@ -289,8 +316,10 @@ def ler_agendamentos(db, onde="", params=(), para_cliente=False):
         detalhe = ""
         if aprovado and aprovado["metodo"] != "pix":
             detalhe = f"{aprovado['bandeira']} final {aprovado['final_cartao']}" + (f" em {aprovado['parcelas']}x" if aprovado["parcelas"] > 1 else "")
+        elif aprovado and aprovado["provedor"] == "mercadopago":
+            detalhe = "Pix via Mercado Pago"
         elif any(p["status"] == "estornado" for p in lista_pag):
-            detalhe = "valor estornado no cartão"
+            detalhe = "valor reembolsado"
         a = {
             "id": r["id"], "clienteId": r["cliente_id"], "cliente": r["cliente_nome"], "telefone": r["telefone"],
             "servicoId": r["servico_id"], "servico": r["servico_nome"], "preco": r["preco"], "duracao": r["duracao"],
@@ -301,16 +330,21 @@ def ler_agendamentos(db, onde="", params=(), para_cliente=False):
         }
         if not para_cliente:
             a["comissaoValor"] = r["comissao_valor"]
+            a["repasseId"] = r["pagamento_barbeiro_id"]       # pagamento em que o barbeiro recebeu
+            a["reembolsoPendente"] = r["status"] in ("cancelado", "faltou") and bool(r["pago"])
         saida.append(a)
     return saida
 
 
 def saldo_barbeiro(db, barbeiro_id):
-    ganho = db.execute("SELECT COALESCE(SUM(comissao_valor), 0) FROM agendamentos WHERE barbeiro_id = ? AND status = 'atendido'",
-                       (barbeiro_id,)).fetchone()[0]
-    pago = db.execute("SELECT COALESCE(SUM(valor), 0) FROM pagamentos_barbeiros WHERE barbeiro_id = ?",
-                      (barbeiro_id,)).fetchone()[0]
-    return round(ganho - pago, 2)
+    """Quanto o barbeiro tem a receber: comissões de atendimentos ainda não pagos a ele."""
+    return round(db.execute("""SELECT COALESCE(SUM(comissao_valor), 0) FROM agendamentos
+                               WHERE barbeiro_id = ? AND status = 'atendido' AND pagamento_barbeiro_id IS NULL""",
+                            (barbeiro_id,)).fetchone()[0], 2)
+
+
+def url_foto(r):
+    return f"/api/barbeiros/{r['id']}/foto?v={r['foto_versao']}" if r["foto_versao"] else None
 
 
 # =====================================================================
@@ -401,19 +435,47 @@ def buscar_agendamento(db, aid):
     return a
 
 
-def estornar(db, a):
-    """Ao cancelar: devolve o valor pago no cartão. Pix pago precisa ser devolvido pelo dono."""
+def estornar(db, a, manual_ok=False):
+    """
+    Devolve o dinheiro de um agendamento cancelado.
+    - Mercado Pago (cartão ou Pix): reembolso automático pela API do Mercado Pago.
+    - Cartão em modo de teste: reembolso simulado.
+    - Pix direto na chave (sem Mercado Pago): o dono devolve pelo banco e marca aqui (manual_ok=True).
+    Se o reembolso falhar, o agendamento fica com "reembolso pendente" para tentar de novo.
+    """
+    momento = agora().isoformat(timespec="seconds")
     if not a["pago"]:
+        mp = mercado_pago(db)
+        for p in db.execute("SELECT * FROM pagamentos_clientes WHERE agendamento_id = ? AND status = 'aguardando'", (a["id"],)).fetchall():
+            if p["provedor"] == "mercadopago" and mp and p["provedor_id"]:
+                mp.cancelar(p["provedor_id"])  # Pix ainda não pago: só cancela o código
         db.execute("UPDATE pagamentos_clientes SET status = 'recusado', mensagem = 'Agendamento cancelado' WHERE agendamento_id = ? AND status = 'aguardando'",
                    (a["id"],))
         return ""
-    cartao = db.execute("SELECT * FROM pagamentos_clientes WHERE agendamento_id = ? AND status = 'aprovado' AND metodo != 'pix'",
-                        (a["id"],)).fetchone()
-    if cartao:
-        db.execute("UPDATE pagamentos_clientes SET status = 'estornado' WHERE id = ?", (cartao["id"],))
-        db.execute("UPDATE agendamentos SET pago = 0 WHERE id = ?", (a["id"],))
-        return f"O valor de R$ {a['total']:.2f} foi estornado no cartão final {cartao['final_cartao']}."
-    return "Como você pagou por Pix, a barbearia vai devolver o valor."
+    p = db.execute("SELECT * FROM pagamentos_clientes WHERE agendamento_id = ? AND status = 'aprovado' ORDER BY criado_em DESC LIMIT 1",
+                   (a["id"],)).fetchone()
+    valor = f"R$ {a['total']:.2f}".replace(".", ",")
+    if p and p["provedor"] == "mercadopago":
+        mp = mercado_pago(db)
+        if not mp:
+            return "Reembolso pendente: as credenciais do Mercado Pago foram removidas."
+        try:
+            mp.reembolsar(p["provedor_id"])
+        except pag.ErroMercadoPago as e:
+            return f"O reembolso ainda não foi feito ({e}). A barbearia vai tentar de novo."
+        onde = f"no cartão final {p['final_cartao']}" if p["metodo"] != "pix" else "na conta do Pix"
+        msg = f"Reembolso de {valor} feito pelo Mercado Pago {onde}."
+    elif p and p["metodo"] != "pix":
+        pag.PROVEDOR_CARTAO.reembolsar(p["txid"], a["total"])
+        msg = f"O valor de {valor} foi estornado no cartão final {p['final_cartao']}."
+    elif manual_ok:
+        msg = f"Pix de {valor} marcado como devolvido ao cliente."
+    else:
+        return "Como você pagou por Pix, a barbearia vai devolver o valor."
+    if p:
+        db.execute("UPDATE pagamentos_clientes SET status = 'estornado', reembolsado_em = ? WHERE id = ?", (momento, p["id"]))
+    db.execute("UPDATE agendamentos SET pago = 0 WHERE id = ?", (a["id"],))
+    return msg
 
 
 # =====================================================================
@@ -452,7 +514,7 @@ def r_logout(c):
 
 # ---------- Cliente ----------
 def cliente_json(r):
-    return {"id": r["id"], "nome": r["nome"], "tel": r["telefone"]}
+    return {"id": r["id"], "nome": r["nome"], "tel": r["telefone"], "email": r["email"], "cpf": r["cpf"]}
 
 
 @rota("POST", "/api/clientes/cadastro")
@@ -470,7 +532,7 @@ def r_cadastro(c):
                        (nome, tel, gerar_hash(senha))).lastrowid
     # agendamentos feitos no balcão com esse telefone passam a aparecer na conta
     c.db.execute("UPDATE agendamentos SET cliente_id = ? WHERE cliente_id IS NULL AND telefone = ?", (cid, tel))
-    return {"token": nova_sessao(c.db, "cliente", cid), "cliente": {"id": cid, "nome": nome, "tel": tel}}
+    return {"token": nova_sessao(c.db, "cliente", cid), "cliente": {"id": cid, "nome": nome, "tel": tel, "email": "", "cpf": ""}}
 
 
 @rota("POST", "/api/clientes/login")
@@ -529,9 +591,47 @@ def agendamento_para_pagar(c):
     return a
 
 
+def dados_pagador(c, precisa_cpf=False):
+    """E-mail (e CPF, no cartão) que o Mercado Pago exige. Ficam salvos na conta do cliente."""
+    cli = c.db.execute("SELECT * FROM clientes WHERE id = ?", (c.usuario_id,)).fetchone()
+    email = texto(c.corpo, "email", False, 120, "e-mail") or cli["email"]
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email or ""):
+        raise Erro("Digite um e-mail válido para receber o comprovante.")
+    cpf = digitos(c.corpo.get("cpf")) or cli["cpf"]
+    if precisa_cpf and len(cpf) != 11:
+        raise Erro("Digite o CPF do dono do cartão (11 números).")
+    c.db.execute("UPDATE clientes SET email = ?, cpf = ? WHERE id = ?", (email, cpf if len(cpf) == 11 else cli["cpf"], cli["id"]))
+    return email, cpf
+
+
+def descricao_pedido(a):
+    return f"{a['servico_nome']} - {a['dia'][8:10]}/{a['dia'][5:7]} {a['hora']} - Agendamento {a['id']}"
+
+
 @rota("POST", r"/api/agendamentos/(\d+)/pix", "cliente")
 def r_pix(c):
     a = agendamento_para_pagar(c)
+    mp = mercado_pago(c.db)
+    if mp:
+        # Pix pelo Mercado Pago: o sistema descobre sozinho quando o cliente pagar
+        p = c.db.execute("""SELECT * FROM pagamentos_clientes WHERE agendamento_id = ? AND metodo = 'pix' AND status = 'aguardando'
+                            AND provedor = 'mercadopago' AND valor = ? AND criado_em > ? ORDER BY criado_em DESC LIMIT 1""",
+                         (a["id"], a["total"], (agora() - timedelta(minutes=50)).isoformat(timespec="seconds"))).fetchone()
+        if p:
+            return {"codigo": p["pix_codigo"], "valor": a["total"], "recebedor": cfg_valor(c.db, "pix_recebedor", ""),
+                    "txid": p["provedor_id"], "automatico": True}
+        email, _ = dados_pagador(c)
+        try:
+            r = mp.criar_pix(a["total"], descricao_pedido(a), email, f"agendamento-{a['id']}")
+        except pag.ErroMercadoPago as e:
+            raise Erro(str(e), 502)
+        c.db.execute("""INSERT INTO pagamentos_clientes (id, agendamento_id, metodo, status, valor, txid, pix_codigo, provedor, provedor_id, criado_em)
+                        VALUES (?, ?, 'pix', 'aguardando', ?, ?, ?, 'mercadopago', ?, ?)""",
+                     (novo_id("pc"), a["id"], a["total"], r["id"], r["codigo"], r["id"], agora().isoformat(timespec="seconds")))
+        c.db.execute("UPDATE agendamentos SET pagamento = 'Pix' WHERE id = ?", (a["id"],))
+        return {"codigo": r["codigo"], "qrBase64": r["qr_base64"], "valor": a["total"],
+                "recebedor": cfg_valor(c.db, "pix_recebedor", ""), "txid": r["id"], "automatico": True}
+
     chave = cfg_valor(c.db, "pix_chave", "")
     if not chave:
         raise Erro("A barbearia ainda não cadastrou a chave Pix. Escolha outra forma de pagamento.")
@@ -545,11 +645,62 @@ def r_pix(c):
     else:
         txid = pag.novo_txid()
         codigo = pag.codigo_pix(chave, recebedor, cidade, a["total"], txid)
-        c.db.execute("""INSERT INTO pagamentos_clientes (id, agendamento_id, metodo, status, valor, txid, pix_codigo, criado_em)
-                        VALUES (?, ?, 'pix', 'aguardando', ?, ?, ?, ?)""",
+        c.db.execute("""INSERT INTO pagamentos_clientes (id, agendamento_id, metodo, status, valor, txid, pix_codigo, provedor, criado_em)
+                        VALUES (?, ?, 'pix', 'aguardando', ?, ?, ?, 'pix_manual', ?)""",
                      (novo_id("pc"), a["id"], a["total"], txid, codigo, agora().isoformat(timespec="seconds")))
     c.db.execute("UPDATE agendamentos SET pagamento = 'Pix' WHERE id = ?", (a["id"],))
-    return {"codigo": codigo, "valor": a["total"], "recebedor": recebedor, "txid": txid}
+    return {"codigo": codigo, "valor": a["total"], "recebedor": recebedor, "txid": txid, "automatico": False}
+
+
+def atualizar_pix_mp(db, a):
+    """Pergunta ao Mercado Pago se o Pix deste agendamento já foi pago."""
+    mp = mercado_pago(db)
+    if not mp or a["pago"]:
+        return
+    for p in db.execute("""SELECT * FROM pagamentos_clientes WHERE agendamento_id = ? AND status = 'aguardando'
+                           AND provedor = 'mercadopago'""", (a["id"],)).fetchall():
+        try:
+            r = mp.consultar(p["provedor_id"])
+        except pag.ErroMercadoPago:
+            continue
+        if r["status"] == "approved":
+            momento = agora().isoformat(timespec="seconds")
+            db.execute("UPDATE pagamentos_clientes SET status = 'aprovado', pago_em = ? WHERE id = ?", (momento, p["id"]))
+            db.execute("UPDATE agendamentos SET pago = 1, pagamento = 'Pix' WHERE id = ?", (a["id"],))
+            if a["status"] in ("cancelado", "faltou"):  # pagou depois de cancelado: devolve
+                estornar(db, buscar_agendamento(db, a["id"]))
+            return
+        if r["status"] in ("cancelled", "rejected", "refunded"):
+            db.execute("UPDATE pagamentos_clientes SET status = 'recusado', mensagem = ? WHERE id = ?", (r["status"], p["id"]))
+
+
+@rota("GET", r"/api/agendamentos/(\d+)/pagamento", "cliente")
+def r_situacao_pagamento(c):
+    """O app pergunta de tempos em tempos se o Pix já caiu."""
+    a = buscar_agendamento(c.db, int(c.args[0]))
+    if a["cliente_id"] != c.usuario_id:
+        raise Erro("Agendamento não encontrado.", 404)
+    atualizar_pix_mp(c.db, a)
+    a = ler_agendamentos(c.db, "WHERE a.id = ?", (a["id"],), para_cliente=True)[0]
+    return {"pagamentoStatus": a["pagamentoStatus"], "pago": a["pago"]}
+
+
+def registrar_cartao(c, a, *, tipo, parcelas, bandeira, final, status, transacao, mensagem, provedor):
+    momento = agora().isoformat(timespec="seconds")
+    c.db.execute("""INSERT INTO pagamentos_clientes (id, agendamento_id, metodo, status, valor, txid, bandeira, final_cartao, parcelas,
+                      mensagem, provedor, provedor_id, criado_em, pago_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 (novo_id("pc"), a["id"], tipo, status, a["total"], transacao, bandeira, final, parcelas, mensagem, provedor,
+                  transacao if provedor == "mercadopago" else None, momento, momento if status == "aprovado" else None))
+    if status == "aprovado":
+        # outros Pix em aberto deste pedido deixam de valer
+        mp = mercado_pago(c.db)
+        for p in c.db.execute("SELECT * FROM pagamentos_clientes WHERE agendamento_id = ? AND status = 'aguardando'", (a["id"],)).fetchall():
+            if p["provedor"] == "mercadopago" and mp:
+                mp.cancelar(p["provedor_id"])
+        c.db.execute("UPDATE pagamentos_clientes SET status = 'recusado', mensagem = 'Pago com cartão' WHERE agendamento_id = ? AND status = 'aguardando'",
+                     (a["id"],))
+        c.db.execute("UPDATE agendamentos SET pago = 1, pagamento = ? WHERE id = ?",
+                     ("Cartão de crédito" if tipo == "credito" else "Cartão de débito", a["id"]))
 
 
 @rota("POST", r"/api/agendamentos/(\d+)/cartao", "cliente")
@@ -559,6 +710,36 @@ def r_cartao(c):
     if tipo not in ("credito", "debito"):
         raise Erro("Escolha crédito ou débito.")
     parcelas = 1 if tipo == "debito" else numero(c.corpo.get("parcelas", 1), "parcelas", 1, MAX_PARCELAS, inteiro=True)
+
+    mp = mercado_pago(c.db)
+    if mp:
+        # Com Mercado Pago o número do cartão nem passa pelo nosso servidor:
+        # o navegador manda os dados direto para o Mercado Pago, que devolve um "token".
+        email, cpf = dados_pagador(c, precisa_cpf=True)
+        token = texto(c.corpo, "token", maximo=200, nome="token do cartão")
+        metodo_id = id_valido(c.corpo.get("metodoId"), "bandeira")
+        emissor = c.corpo.get("emissorId")
+        emissor = str(emissor) if emissor not in (None, "") and re.fullmatch(r"\d{1,12}", str(emissor)) else None
+        bandeira = texto(c.corpo, "bandeira", False, 30) or metodo_id.capitalize()
+        final = digitos(c.corpo.get("final"))[-4:]
+        try:
+            r = mp.cobrar_cartao(valor=a["total"], descricao=descricao_pedido(a), token=token, metodo_id=metodo_id,
+                                 emissor_id=emissor, parcelas=parcelas, email=email, cpf=cpf, referencia=f"agendamento-{a['id']}")
+        except pag.ErroMercadoPago as e:
+            raise Erro(str(e), 502)
+        if r["status"] == "approved":
+            registrar_cartao(c, a, tipo=tipo, parcelas=parcelas, bandeira=bandeira, final=final, status="aprovado",
+                             transacao=r["id"], mensagem="", provedor="mercadopago")
+            return {"aprovado": True, "bandeira": bandeira, "final": final, "parcelas": parcelas, "transacao": r["id"], "modoTeste": False}
+        if r["status"] in ("in_process", "pending"):
+            registrar_cartao(c, a, tipo=tipo, parcelas=parcelas, bandeira=bandeira, final=final, status="aguardando",
+                             transacao=r["id"], mensagem="Em análise", provedor="mercadopago")
+            return {"aprovado": False, "mensagem": "O pagamento está em análise pelo Mercado Pago. Você recebe a resposta por e-mail."}
+        motivo = pag.motivo_recusa(r["detalhe"])
+        registrar_cartao(c, a, tipo=tipo, parcelas=parcelas, bandeira=bandeira, final=final, status="recusado",
+                         transacao=r["id"], mensagem=motivo, provedor="mercadopago")
+        return {"aprovado": False, "mensagem": motivo}
+
     try:
         numero_cartao, bandeira = pag.validar_cartao(c.corpo)
     except ValueError as e:
@@ -598,6 +779,12 @@ def r_login_dono(c):
 
 @rota("GET", "/api/dono/dados", "dono")
 def r_dados(c):
+    # confere no Mercado Pago os Pix que ainda estão esperando (no máximo 10 de uma vez)
+    if mercado_pago(c.db):
+        for a in c.db.execute("""SELECT DISTINCT a.* FROM agendamentos a JOIN pagamentos_clientes p ON p.agendamento_id = a.id
+                                 WHERE p.status = 'aguardando' AND p.provedor = 'mercadopago' AND p.criado_em > ? LIMIT 10""",
+                              ((agora() - timedelta(days=2)).isoformat(),)).fetchall():
+            atualizar_pix_mp(c.db, a)
     dono = c.db.execute("SELECT nome, usuario FROM donos WHERE id = ?", (c.usuario_id,)).fetchone()
     return {
         "dono": {"nome": dono["nome"], "usuario": dono["usuario"]},
@@ -629,15 +816,36 @@ def r_salvar_config(c):
         folga = b.get("folga", [])
         if not isinstance(folga, list) or any(isinstance(x, bool) or x not in range(7) for x in folga):
             raise Erro("Dias de folga inválidos.")
+        # o WhatsApp do barbeiro é o login dele no painel do barbeiro
+        tel = digitos(b.get("telefone"))
+        if tel and len(tel) not in (10, 11):
+            raise Erro(f"{nome}: digite o WhatsApp com DDD.")
+        if tel and db.execute("SELECT 1 FROM barbeiros WHERE telefone = ? AND id != ?", (tel, bid)).fetchone():
+            raise Erro(f"{nome}: já existe outro barbeiro com esse WhatsApp.")
+        chave_digitada = texto(b, "chavePix", False, 77, "chave Pix do barbeiro")
+        chave = pag.validar_chave_pix(chave_digitada) if chave_digitada else ""
+        if chave is None:
+            raise Erro(f"{nome}: chave Pix inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória.")
+        existe = db.execute("SELECT senha_hash FROM barbeiros WHERE id = ?", (bid,)).fetchone()
+        nova_senha = b.get("novaSenha") or ""
+        if not isinstance(nova_senha, str) or (nova_senha and len(nova_senha) < 4):
+            raise Erro(f"{nome}: a senha do barbeiro precisa ter pelo menos 4 caracteres.")
+        if not existe and not nova_senha:
+            raise Erro(f"{nome}: crie uma senha para o barbeiro acessar o painel dele.")
+        if nova_senha and not tel:
+            raise Erro(f"{nome}: digite o WhatsApp com DDD. Ele é o login do barbeiro.")
         # "ativo" não muda aqui: remover/reativar tem rota própria (com as regras de pagamento)
-        db.execute("""INSERT INTO barbeiros (id, nome, telefone, especialidade, folga, comissao, comissao_produtos, ativo, entrou_em)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-                      ON CONFLICT(id) DO UPDATE SET nome = excluded.nome, telefone = excluded.telefone,
+        db.execute("""INSERT INTO barbeiros (id, nome, telefone, chave_pix, especialidade, folga, comissao, comissao_produtos, ativo, entrou_em)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                      ON CONFLICT(id) DO UPDATE SET nome = excluded.nome, telefone = excluded.telefone, chave_pix = excluded.chave_pix,
                       especialidade = excluded.especialidade, folga = excluded.folga, comissao = excluded.comissao,
                       comissao_produtos = excluded.comissao_produtos""",
-                   (bid, nome, digitos(b.get("telefone"))[:15], texto(b, "especialidade", False, 80),
+                   (bid, nome, tel, chave, texto(b, "especialidade", False, 80),
                     json.dumps(sorted(set(folga))), numero(b.get("comissao"), "comissão", 0, 100),
                     numero(b.get("comissaoProdutos", 0), "comissão dos produtos", 0, 100), hoje().isoformat()))
+        if nova_senha:
+            db.execute("UPDATE barbeiros SET senha_hash = ? WHERE id = ?", (gerar_hash(nova_senha), bid))
+            db.execute("DELETE FROM sessoes WHERE tipo = 'barbeiro' AND usuario_id = ?", (bid,))
         db.execute("UPDATE agendamentos SET barbeiro_nome = ? WHERE barbeiro_id = ? AND status = 'confirmado'", (nome, bid))
 
     for p in lista(cfg, "produtos"):
@@ -793,6 +1001,10 @@ def r_reativar_barbeiro(c):
 
 @rota("POST", "/api/dono/pagamentos", "dono")
 def r_pagar(c):
+    """
+    Paga o barbeiro pelos atendimentos escolhidos. Cada atendimento fica marcado com o pagamento
+    em que foi quitado, então dá para ver exatamente o que já foi pago e o que falta.
+    """
     bid = id_valido(c.corpo.get("barbeiroId"), "barbeiro")
     if not c.db.execute("SELECT 1 FROM barbeiros WHERE id = ?", (bid,)).fetchone():
         raise Erro("Barbeiro não encontrado.", 404)
@@ -800,17 +1012,157 @@ def r_pagar(c):
     if forma not in FORMAS_PAG_BARBEIRO:
         raise Erro("Forma de pagamento inválida.")
     data_valida(c.corpo.get("data"))
+    ids = c.corpo.get("agendamentoIds")
+    if not isinstance(ids, list) or not ids or len(ids) > 2000 or not all(isinstance(x, int) and not isinstance(x, bool) for x in ids):
+        raise Erro("Escolha pelo menos um atendimento para pagar.")
+    ids = sorted(set(ids))
+    marcas = ",".join("?" * len(ids))
+    linhas = c.db.execute(f"""SELECT id, comissao_valor FROM agendamentos WHERE id IN ({marcas}) AND barbeiro_id = ?
+                              AND status = 'atendido' AND pagamento_barbeiro_id IS NULL""", (*ids, bid)).fetchall()
+    if len(linhas) != len(ids):
+        raise Erro("Algum desses atendimentos já foi pago ou não é deste barbeiro. Atualize a página.", 409)
+    valor = round(sum(r["comissao_valor"] or 0 for r in linhas), 2)
+    if valor <= 0:
+        raise Erro("Esses atendimentos não têm comissão a pagar.")
     pid = novo_id("pg")
     c.db.execute("INSERT INTO pagamentos_barbeiros (id, barbeiro_id, valor, data, forma, obs) VALUES (?, ?, ?, ?, ?, ?)",
-                 (pid, bid, round(numero(c.corpo.get("valor"), "valor", 0.01, 1_000_000), 2), c.corpo["data"], forma,
-                  texto(c.corpo, "obs", False, 120, "observação")))
-    return {"id": pid}
+                 (pid, bid, valor, c.corpo["data"], forma, texto(c.corpo, "obs", False, 120, "observação")))
+    c.db.execute(f"UPDATE agendamentos SET pagamento_barbeiro_id = ? WHERE id IN ({marcas})", (pid, *ids))
+    return {"id": pid, "valor": valor, "atendimentos": len(ids)}
 
 
 @rota("DELETE", r"/api/dono/pagamentos/([\w-]+)", "dono")
 def r_excluir_pagamento(c):
+    """Desfaz um pagamento registrado errado: os atendimentos voltam a ficar 'a receber'."""
+    c.db.execute("UPDATE agendamentos SET pagamento_barbeiro_id = NULL WHERE pagamento_barbeiro_id = ?", (c.args[0],))
     if not c.db.execute("DELETE FROM pagamentos_barbeiros WHERE id = ?", (c.args[0],)).rowcount:
         raise Erro("Pagamento não encontrado.", 404)
+
+
+@rota("POST", r"/api/dono/barbeiros/([\w-]+)/pix", "dono")
+def r_pix_barbeiro(c):
+    """Gera o QR code Pix para o dono pagar o barbeiro pelo app do banco."""
+    b = c.db.execute("SELECT * FROM barbeiros WHERE id = ?", (c.args[0],)).fetchone()
+    if not b:
+        raise Erro("Barbeiro não encontrado.", 404)
+    if not b["chave_pix"]:
+        raise Erro(f"Cadastre a chave Pix de {b['nome']} (Barbeiros → Editar) para pagar pelo site.")
+    valor = round(numero(c.corpo.get("valor"), "valor", 0.01, 1_000_000), 2)
+    cidade = cfg_valor(c.db, "pix_cidade", "") or "Brasil"
+    return {"codigo": pag.codigo_pix(b["chave_pix"], b["nome"], cidade, valor, pag.novo_txid()),
+            "chave": b["chave_pix"], "nome": b["nome"], "valor": valor}
+
+
+@rota("PUT", r"/api/dono/barbeiros/([\w-]+)/foto", "dono")
+def r_foto_salvar(c):
+    import base64
+    b = c.db.execute("SELECT id FROM barbeiros WHERE id = ?", (c.args[0],)).fetchone()
+    if not b:
+        raise Erro("Barbeiro não encontrado.", 404)
+    imagem = c.corpo.get("imagem")
+    if imagem is None:  # remover foto
+        c.db.execute("UPDATE barbeiros SET foto = NULL, foto_tipo = NULL, foto_versao = NULL WHERE id = ?", (b["id"],))
+        return
+    m = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)", imagem if isinstance(imagem, str) else "")
+    if not m:
+        raise Erro("Foto inválida. Use uma imagem JPG, PNG ou WEBP.")
+    dados = base64.b64decode(m.group(2))
+    assinaturas = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG", "image/webp": b"RIFF"}
+    if len(dados) > FOTO_MAX_BYTES or not dados.startswith(assinaturas[m.group(1)]):
+        raise Erro("Foto inválida ou grande demais (máximo 1,5 MB).")
+    c.db.execute("UPDATE barbeiros SET foto = ?, foto_tipo = ?, foto_versao = ? WHERE id = ?",
+                 (dados, m.group(1), secrets.token_hex(4), b["id"]))
+
+
+@rota("GET", r"/api/barbeiros/([\w-]+)/foto")
+def r_foto(c):
+    b = c.db.execute("SELECT foto, foto_tipo FROM barbeiros WHERE id = ?", (c.args[0],)).fetchone()
+    if not b or not b["foto"]:
+        raise Erro("Sem foto.", 404)
+    return Arquivo(bytes(b["foto"]), b["foto_tipo"], None)
+
+
+@rota("POST", r"/api/dono/agendamentos/(\d+)/reembolsar", "dono")
+def r_reembolsar(c):
+    """Reembolsa um pedido cancelado que ainda está pago (ex.: o reembolso automático falhou, ou foi Pix direto)."""
+    a = buscar_agendamento(c.db, int(c.args[0]))
+    if a["status"] not in ("cancelado", "faltou"):
+        raise Erro("Cancele o agendamento antes de reembolsar.", 409)
+    if not a["pago"]:
+        raise Erro("Esse pedido não tem valor pago para devolver.", 409)
+    msg = estornar(c.db, a, manual_ok=True)
+    if buscar_agendamento(c.db, a["id"])["pago"]:
+        raise Erro(msg, 502)
+    return {"mensagem": msg}
+
+
+@rota("PUT", "/api/dono/mercadopago", "dono")
+def r_salvar_mp(c):
+    if c.corpo.get("remover"):
+        c.db.execute("DELETE FROM configuracoes WHERE chave IN ('mp_public_key', 'mp_access_token')")
+        return {"mensagem": "Mercado Pago desligado. O cartão volta para o modo de teste."}
+    publica = texto(c.corpo, "publicKey", True, 120, "Public Key")
+    token = texto(c.corpo, "accessToken", False, 200, "Access Token") or cfg_valor(c.db, "mp_access_token", "")
+    if not re.fullmatch(r"(APP_USR|TEST)-[\w-]+", publica):
+        raise Erro("Public Key inválida. Ela começa com APP_USR- ou TEST-.")
+    if not re.fullmatch(r"(APP_USR|TEST)-[\w-]+", token or ""):
+        raise Erro("Access Token inválido. Ele começa com APP_USR- ou TEST-.")
+    try:
+        pag.MercadoPago(token).testar()
+    except pag.ErroMercadoPago as e:
+        raise Erro(str(e))
+    for chave, valor in (("mp_public_key", publica), ("mp_access_token", token)):
+        c.db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)", (chave, valor))
+    modo = "de TESTE" if token.startswith("TEST-") else "de PRODUÇÃO (cobra de verdade)"
+    return {"mensagem": f"Mercado Pago conectado no modo {modo}."}
+
+
+# ---------- Barbeiro ----------
+@rota("POST", "/api/barbeiro/login")
+def r_login_barbeiro(c):
+    tel = digitos(c.corpo.get("telefone"))
+    senha = c.corpo.get("senha")
+    b = c.db.execute("SELECT * FROM barbeiros WHERE telefone = ? AND ativo = 1", (tel,)).fetchone()
+    if not b or not b["senha_hash"] or not isinstance(senha, str) or not conferir_senha(senha, b["senha_hash"]):
+        raise Erro("WhatsApp ou senha incorretos.", 401)
+    return {"token": nova_sessao(c.db, "barbeiro", b["id"]), "nome": b["nome"]}
+
+
+@rota("GET", "/api/barbeiro/dados", "barbeiro")
+def r_dados_barbeiro(c):
+    b = c.db.execute("SELECT * FROM barbeiros WHERE id = ?", (c.usuario_id,)).fetchone()
+    ags = ler_agendamentos(c.db, "WHERE a.barbeiro_id = ? AND a.status != 'cancelado'", (b["id"],))
+    for a in ags:  # o barbeiro não vê custo de produto nem dados de pagamento do cartão
+        for p in a["produtos"]:
+            p.pop("custo", None)
+        a.pop("pagamentoDetalhe", None)
+        a.pop("reembolsoPendente", None)
+        if a["status"] == "confirmado":  # quanto ele deve ganhar com esse atendimento
+            prod = sum(p["preco"] * p["qtd"] for p in a["produtos"])
+            a["comissaoPrevista"] = round(a["preco"] * b["comissao"] / 100 + prod * b["comissao_produtos"] / 100, 2)
+    pagos = [{"id": r["id"], "valor": r["valor"], "data": r["data"], "forma": r["forma"], "obs": r["obs"]}
+             for r in c.db.execute("SELECT * FROM pagamentos_barbeiros WHERE barbeiro_id = ? ORDER BY data DESC", (b["id"],))]
+    return {
+        "barbeiro": {"id": b["id"], "nome": b["nome"], "telefone": b["telefone"], "especialidade": b["especialidade"],
+                     "folga": json.loads(b["folga"]), "comissao": b["comissao"], "comissaoProdutos": b["comissao_produtos"],
+                     "chavePix": b["chave_pix"], "foto": url_foto(b), "entrouEm": b["entrou_em"]},
+        "agendamentos": ags,
+        "pagamentos": pagos,
+        "saldo": saldo_barbeiro(c.db, b["id"]),
+        "funcionamento": ler_funcionamento(c.db),
+    }
+
+
+@rota("POST", "/api/barbeiro/senha", "barbeiro")
+def r_senha_barbeiro(c):
+    b = c.db.execute("SELECT * FROM barbeiros WHERE id = ?", (c.usuario_id,)).fetchone()
+    atual, nova = c.corpo.get("atual"), c.corpo.get("nova")
+    if not isinstance(atual, str) or not conferir_senha(atual, b["senha_hash"]):
+        raise Erro("A senha atual está errada.")
+    if not isinstance(nova, str) or len(nova) < 4:
+        raise Erro("A nova senha precisa ter pelo menos 4 caracteres.")
+    c.db.execute("UPDATE barbeiros SET senha_hash = ? WHERE id = ?", (gerar_hash(nova), b["id"]))
+    c.db.execute("DELETE FROM sessoes WHERE tipo = 'barbeiro' AND usuario_id = ? AND token != ?", (b["id"], c.token))
 
 
 @rota("POST", "/api/dono/despesas", "dono")
@@ -871,8 +1223,9 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/"):
             return self.api("GET")
-        if urlparse(self.path).path.rstrip("/") == "/dono":
-            self.path = "/dono.html"
+        caminho = urlparse(self.path).path.rstrip("/")
+        if caminho in ("/dono", "/barbeiro"):
+            self.path = caminho + ".html"
         return super().do_GET()
 
     def do_POST(self):
@@ -892,7 +1245,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(corpo)))
-        if isinstance(dados, Arquivo):
+        if isinstance(dados, Arquivo) and dados.nome:
             self.send_header("Content-Disposition", f'attachment; filename="{dados.nome}"')
         self.end_headers()
         self.wfile.write(corpo)
@@ -940,6 +1293,7 @@ class Handler(SimpleHTTPRequestHandler):
 # =====================================================================
 CONTA_DONO = {"usuario": "admin", "senha": "admin123", "nome": "Dono (conta de teste)"}
 CONTA_CLIENTE = {"nome": "Davi", "telefone": "11999999999", "senha": "1234"}
+SENHA_BARBEIROS_TESTE = "1234"   # login dos barbeiros de teste: WhatsApp de cada um + esta senha
 
 SERVICOS_PADRAO = [
     ("corte", "Corte", "💈", 40, 30), ("barba", "Barba", "🧔", 30, 30), ("corte-barba", "Corte + Barba", "✂️", 65, 60),
@@ -977,8 +1331,9 @@ def popular(db):
         db.execute("INSERT INTO servicos (id, nome, icone, preco, duracao) VALUES (?, ?, ?, ?, ?)", s)
     entrou = (hoje() - timedelta(days=180)).isoformat()
     for bid, nome, tel, esp, folga in BARBEIROS_PADRAO:
-        db.execute("INSERT INTO barbeiros (id, nome, telefone, especialidade, folga, comissao, comissao_produtos, entrou_em) VALUES (?, ?, ?, ?, ?, 50, 10, ?)",
-                   (bid, nome, tel, esp, json.dumps(folga), entrou))
+        db.execute("""INSERT INTO barbeiros (id, nome, telefone, senha_hash, chave_pix, especialidade, folga, comissao, comissao_produtos, entrou_em)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, 50, 10, ?)""",
+                   (bid, nome, tel, gerar_hash(SENHA_BARBEIROS_TESTE), "+55" + tel, esp, json.dumps(folga), entrou))
     for p in PRODUTOS_PADRAO:
         db.execute("INSERT INTO produtos (id, nome, categoria, icone, preco, custo, estoque) VALUES (?, ?, ?, ?, ?, ?, ?)", p)
     for i, (aberto, abre, fecha) in enumerate(SEMANA_PADRAO):
@@ -1060,8 +1415,11 @@ def criar_exemplos(db, davi_id):
         valor = db.execute("SELECT COALESCE(SUM(comissao_valor), 0) FROM agendamentos WHERE barbeiro_id = ? AND status = 'atendido' AND dia <= ?",
                            (b[0], corte)).fetchone()[0]
         if valor:
+            pid = novo_id("pg")
             db.execute("INSERT INTO pagamentos_barbeiros (id, barbeiro_id, valor, data, forma, obs) VALUES (?, ?, ?, ?, 'Pix', 'Comissões (exemplo)')",
-                       (novo_id("pg"), b[0], round(valor, 2), corte))
+                       (pid, b[0], round(valor, 2), corte))
+            db.execute("UPDATE agendamentos SET pagamento_barbeiro_id = ? WHERE barbeiro_id = ? AND status = 'atendido' AND dia <= ?",
+                       (pid, b[0], corte))
 
     # despesas do mês atual e do anterior
     inicio = hoje().replace(day=1)
@@ -1083,9 +1441,58 @@ def iniciar_banco(resetar=False):
         schema = arq.read()
     with conectar() as db:
         db.executescript(schema)
+        migrar(db)
         if db.execute("SELECT COUNT(*) FROM donos").fetchone()[0] == 0:
             popular(db)
             print("Banco criado com os dados de teste.")
+
+
+def migrar(db):
+    """Atualiza um banco criado por uma versão antiga do sistema, sem perder nenhum dado."""
+    def colunas(tabela):
+        return {r[1] for r in db.execute(f"PRAGMA table_info({tabela})")}
+
+    def adicionar(tabela, coluna, definicao):
+        if coluna not in colunas(tabela):
+            db.execute(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {definicao}")
+            return True
+        return False
+
+    adicionar("clientes", "email", "TEXT NOT NULL DEFAULT ''")
+    adicionar("clientes", "cpf", "TEXT NOT NULL DEFAULT ''")
+    adicionar("barbeiros", "senha_hash", "TEXT")
+    adicionar("barbeiros", "chave_pix", "TEXT NOT NULL DEFAULT ''")
+    adicionar("barbeiros", "foto", "BLOB")
+    adicionar("barbeiros", "foto_tipo", "TEXT")
+    adicionar("barbeiros", "foto_versao", "TEXT")
+    if adicionar("pagamentos_clientes", "provedor", "TEXT NOT NULL DEFAULT 'teste'"):
+        db.execute("UPDATE pagamentos_clientes SET provedor = 'pix_manual' WHERE metodo = 'pix'")
+    adicionar("pagamentos_clientes", "provedor_id", "TEXT")
+    adicionar("pagamentos_clientes", "reembolsado_em", "TEXT")
+    repasses_novos = adicionar("agendamentos", "pagamento_barbeiro_id", "TEXT REFERENCES pagamentos_barbeiros(id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_agendamentos_repasse ON agendamentos (pagamento_barbeiro_id)")
+
+    # a tabela de logins antiga não aceitava o tipo "barbeiro": recria (todos precisam entrar de novo uma vez)
+    sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'sessoes'").fetchone()[0]
+    if "'barbeiro'" not in sql:
+        db.execute("DROP TABLE sessoes")
+        db.execute("""CREATE TABLE sessoes (token TEXT PRIMARY KEY,
+                      tipo TEXT NOT NULL CHECK (tipo IN ('cliente', 'dono', 'barbeiro')),
+                      usuario_id TEXT NOT NULL, expira_em TEXT NOT NULL)""")
+
+    # pagamentos antigos aos barbeiros eram só um valor solto: liga cada um aos atendimentos que ele cobriu
+    if repasses_novos:
+        for b in db.execute("SELECT DISTINCT barbeiro_id FROM pagamentos_barbeiros").fetchall():
+            atendimentos = db.execute("""SELECT id, comissao_valor FROM agendamentos WHERE barbeiro_id = ? AND status = 'atendido'
+                                         ORDER BY dia, hora""", (b[0],)).fetchall()
+            i = 0
+            for p in db.execute("SELECT id, valor FROM pagamentos_barbeiros WHERE barbeiro_id = ? ORDER BY data, rowid", (b[0],)).fetchall():
+                usado = 0.0
+                while i < len(atendimentos) and usado + (atendimentos[i][1] or 0) <= p[1] + 0.01:
+                    usado += atendimentos[i][1] or 0
+                    db.execute("UPDATE agendamentos SET pagamento_barbeiro_id = ? WHERE id = ?", (p[0], atendimentos[i][0]))
+                    i += 1
+        print("Banco atualizado: pagamentos dos barbeiros ligados aos atendimentos.")
 
 
 def ip_da_rede():
@@ -1103,13 +1510,15 @@ def main():
     servidor = ThreadingHTTPServer(("0.0.0.0" if na_rede else "127.0.0.1", PORTA), Handler)
     print()
     print("  ✂  Servidor da barbearia ligado!")
-    print(f"     App do cliente:  http://localhost:{PORTA}")
-    print(f"     Painel do dono:  http://localhost:{PORTA}/dono")
+    print(f"     Site:               http://localhost:{PORTA}")
+    print(f"     Painel do dono:     http://localhost:{PORTA}/dono")
+    print(f"     Painel do barbeiro: http://localhost:{PORTA}/barbeiro")
     if na_rede and ip_da_rede():
         print(f"     No celular (mesmo Wi-Fi): http://{ip_da_rede()}:{PORTA}")
     print()
     print(f"  Conta de teste do dono:    usuário {CONTA_DONO['usuario']}  /  senha {CONTA_DONO['senha']}")
     print(f"  Conta de teste do cliente: WhatsApp {CONTA_CLIENTE['telefone']}  /  senha {CONTA_CLIENTE['senha']}")
+    print(f"  Barbeiro de teste (João):  WhatsApp {BARBEIROS_PADRAO[0][2]}  /  senha {SENHA_BARBEIROS_TESTE}")
     print("\n  Para desligar: Ctrl + C\n")
     try:
         servidor.serve_forever()

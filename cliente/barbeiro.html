@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Barbearia Real — Painel do Barbeiro</title>
+  <script>try { var t = JSON.parse(localStorage.getItem("tema")); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dono.css">
+</head>
+<body>
+
+  <button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro">
+    <span class="sol">☀️</span><span class="lua">🌙</span>
+  </button>
+
+  <!-- ===== LOGIN DO BARBEIRO ===== -->
+  <section class="tela tela-login" id="telaLoginBarbeiro">
+    <div class="caixa-login">
+      <a class="link voltar-site" href="/">← Voltar ao site</a>
+      <div class="logo"><span><span class="coroa">👑</span>✂</span></div>
+      <h1>Painel do barbeiro</h1>
+      <p class="sub">Sua agenda e quanto você vai receber</p>
+      <form id="formBarbeiro" class="form">
+        <label>WhatsApp
+          <input type="tel" id="barbTel" required placeholder="(00) 00000-0000" autocomplete="username">
+        </label>
+        <label>Senha
+          <input type="password" id="barbSenha" required autocomplete="current-password">
+        </label>
+        <p class="erro" id="erroBarbeiro"></p>
+        <button type="submit" class="btn-principal">Entrar</button>
+        <p class="troca">A senha é criada pelo dono quando ele cadastra você.</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== PAINEL (menu do lado direito) ===== -->
+  <div class="tela app-dono" id="telaBarbeiro" hidden>
+    <aside class="menu">
+      <div class="marca">👑 Barbearia Real <small>Painel do barbeiro</small></div>
+      <nav id="navBarb" aria-label="Menu do barbeiro"></nav>
+      <div class="menu-rodape">
+        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+        <button class="btn-sair" id="sairBarbeiro">Sair</button>
+      </div>
+    </aside>
+    <main class="area" id="conteudoBarb"></main>
+  </div>
+
+  <div class="aviso" id="aviso"></div>
+
+  <script src="comum.js"></script>
+  <script src="barbeiro.js"></script>
+</body>
+</html>

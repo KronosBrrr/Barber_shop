@@ -20,21 +20,28 @@ CREATE TABLE IF NOT EXISTS clientes (
   nome        TEXT NOT NULL,
   telefone    TEXT NOT NULL UNIQUE,          -- só números, com DDD
   senha_hash  TEXT NOT NULL,
+  email       TEXT NOT NULL DEFAULT '',      -- usado no comprovante do Mercado Pago
+  cpf         TEXT NOT NULL DEFAULT '',
   criado_em   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- Logins ativos (cada aparelho conectado tem um token)
 CREATE TABLE IF NOT EXISTS sessoes (
   token       TEXT PRIMARY KEY,
-  tipo        TEXT NOT NULL CHECK (tipo IN ('cliente', 'dono')),
-  usuario_id  INTEGER NOT NULL,
+  tipo        TEXT NOT NULL CHECK (tipo IN ('cliente', 'dono', 'barbeiro')),
+  usuario_id  TEXT NOT NULL,
   expira_em   TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS barbeiros (
   id                 TEXT PRIMARY KEY,
   nome               TEXT NOT NULL,
-  telefone           TEXT NOT NULL DEFAULT '',
+  telefone           TEXT NOT NULL DEFAULT '',      -- também é o login do barbeiro
+  senha_hash         TEXT,                          -- senha do painel do barbeiro (o dono cria)
+  chave_pix          TEXT NOT NULL DEFAULT '',      -- para o dono pagar pelo site
+  foto               BLOB,
+  foto_tipo          TEXT,
+  foto_versao        TEXT,
   especialidade      TEXT NOT NULL DEFAULT '',
   folga              TEXT NOT NULL DEFAULT '[]',   -- dias da semana em JSON (0 = domingo)
   comissao           REAL NOT NULL DEFAULT 50 CHECK (comissao BETWEEN 0 AND 100),
@@ -105,6 +112,7 @@ CREATE TABLE IF NOT EXISTS agendamentos (
                   CHECK (status IN ('confirmado', 'atendido', 'faltou', 'cancelado')),
   origem          TEXT NOT NULL DEFAULT 'app',        -- app ou balcao
   comissao_valor  REAL,                               -- quanto o barbeiro ganhou (definido ao atender)
+  pagamento_barbeiro_id TEXT REFERENCES pagamentos_barbeiros(id), -- em qual pagamento o barbeiro recebeu (vazio = a receber)
   criado_em       TEXT NOT NULL,
   atendido_em     TEXT
 );
@@ -138,8 +146,11 @@ CREATE TABLE IF NOT EXISTS pagamentos_clientes (
   final_cartao    TEXT,
   parcelas        INTEGER NOT NULL DEFAULT 1,
   mensagem        TEXT NOT NULL DEFAULT '',
+  provedor        TEXT NOT NULL DEFAULT 'teste',  -- teste, pix_manual ou mercadopago
+  provedor_id     TEXT,                           -- número do pagamento no Mercado Pago
   criado_em       TEXT NOT NULL,
-  pago_em         TEXT
+  pago_em         TEXT,
+  reembolsado_em  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pagcli_agendamento ON pagamentos_clientes (agendamento_id);
 

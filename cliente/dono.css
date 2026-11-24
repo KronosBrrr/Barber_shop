@@ -134,6 +134,8 @@ tr.inativo td { opacity: .45; }
 .dias-check { display: flex; flex-wrap: wrap; gap: 6px; }
 .dias-check label { display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--cartao-2); color: var(--texto); cursor: pointer; }
 .dias-check input { width: auto; accent-color: var(--ouro); }
+.foto-campo { display: grid; justify-items: center; gap: 10px; text-align: center; padding-bottom: 6px; border-bottom: 1px solid var(--borda); }
+.card-barb .topo-b .avatar.grande { width: 62px; height: 62px; }
 .info-caixa { background: var(--cartao-2); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; font-size: .92rem; }
 
 /* ---------- Celular: menu vira barra no topo ---------- */
