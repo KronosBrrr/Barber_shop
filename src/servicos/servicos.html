@@ -1,0 +1,12 @@
+<!--
+  MÓDULO SERVIÇOS — lista de serviços com preço e duração (vem do banco).
+  Para usar numa página:  <incluir src="servicos/servicos.html"></incluir>
+  A página precisa carregar compartilhado/comum.js e compartilhado/config.js no <head>.
+-->
+<link rel="stylesheet" href="/servicos/servicos.css">
+<section class="secao" id="servicos">
+  <p class="selo">{{site.servicos_selo}}</p>
+  <h2 class="titulo-grande">{{site.servicos_titulo}}</h2>
+  <div class="lista-servicos" id="listaServicos"></div>
+</section>
+<script src="/servicos/servicos.js" defer></script>

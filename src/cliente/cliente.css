@@ -1,0 +1,24 @@
+/* ÁREA DO CLIENTE — tela inicial (próximo horário, botão de agendar e pedidos) */
+.btn-agendar {
+  width: 100%; display: flex; align-items: center; gap: 16px; text-align: left;
+  padding: 22px; border: none; border-radius: var(--raio);
+  background: var(--ouro-grad); color: var(--sobre-ouro);
+  box-shadow: var(--sombra-ouro); transition: transform .15s;
+}
+.btn-agendar:hover { transform: translateY(-2px); }
+.btn-agendar strong { display: block; font-size: 1.2rem; font-family: var(--fonte-titulo); }
+.btn-agendar small { opacity: .75; }
+.btn-agendar > span:nth-child(2) { flex: 1; }
+.seta { font-size: 2rem; line-height: 1; }
+
+.titulo-secao { margin-top: 34px; }
+
+.pedido {
+  background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio);
+  padding: 16px; margin-bottom: 12px; display: grid; gap: 10px;
+}
+.pedido.cancelado { opacity: .55; }
+.pedido-topo, .pedido-rodape { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pedido-rodape { padding-top: 10px; border-top: 1px solid var(--borda); }
+.pedido-rodape .acoes-pedido { display: flex; gap: 14px; }
+.valor { color: var(--texto); }

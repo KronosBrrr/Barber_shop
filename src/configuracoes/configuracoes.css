@@ -1,0 +1,10 @@
+/* CONFIGURAÇÕES — meus dados e trocar senha */
+.cfg { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.cfg-bloco {
+  background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); padding: 20px;
+  display: grid; gap: 14px;
+}
+.cfg-bloco h2 { font-size: 1.1rem; margin: 0; }
+.cfg-bloco .btn-principal { justify-self: start; }
+.cfg-login { background: var(--cartao-2); border-radius: 12px; padding: 10px 14px; font-size: .92rem; }
+.cfg-dica { font-size: .85rem; }

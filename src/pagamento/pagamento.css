@@ -1,0 +1,37 @@
+/* PAGAMENTO — Pix (QR code) e cartão */
+
+/* ---------- Tela de pagamento ---------- */
+.pagamento-caixa {
+  background: var(--cartao); border: 1px solid var(--borda-forte); border-radius: 20px;
+  padding: 22px; box-shadow: var(--sombra); display: grid; gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.pagamento-caixa .form { grid-template-columns: minmax(0, 1fr); }
+.pagamento-caixa .form > * { min-width: 0; }
+.abas-pag { display: flex; gap: 6px; padding: 4px; background: var(--cartao-2); border-radius: 12px; }
+.abas-pag button { flex: 1; min-width: 0; white-space: nowrap; padding: 10px 6px; border: none; border-radius: 9px; background: none; color: var(--suave); font-weight: 600; }
+.abas-pag button.ativo { background: var(--ouro-grad); color: var(--sobre-ouro); }
+
+/* Cartão desenhado */
+.cartao-visual {
+  aspect-ratio: 1.586; max-width: 340px; width: 100%; margin: 0 auto; border-radius: 18px; padding: 20px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  background: linear-gradient(135deg, #1b1b1b, #000 60%), #000; color: #f6f1e3;
+  border: 1px solid #5a4a1a; box-shadow: var(--sombra);
+  font-family: ui-monospace, Consolas, monospace; position: relative; overflow: hidden;
+}
+.cartao-visual::after {
+  content: ""; position: absolute; width: 260px; height: 260px; right: -90px; top: -110px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(244, 196, 48, .35), transparent 65%);
+}
+.cartao-visual .cv-topo { display: flex; justify-content: space-between; align-items: center; }
+.cartao-visual .chip-cartao { width: 42px; height: 32px; border-radius: 6px; background: linear-gradient(135deg, #ffe07a, #c99a12); }
+.cartao-visual .cv-bandeira { font-family: var(--fonte); font-weight: 800; font-style: italic; color: #f4c430; }
+.cartao-visual .cv-numero { font-size: 1.2rem; letter-spacing: .12em; }
+.cartao-visual .cv-rodape { display: flex; justify-content: space-between; font-size: .8rem; text-transform: uppercase; }
+.cartao-visual .cv-rodape small { display: block; font-size: .6rem; opacity: .6; }
+.form-cartao .dupla { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+
+@media (max-width: 480px) {
+  .form-cartao .dupla { grid-template-columns: 1fr 1fr; }
+}

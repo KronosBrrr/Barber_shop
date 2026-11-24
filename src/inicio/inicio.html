@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{site.nome}} — Agende seu horário</title>
+  <script>try { var t = JSON.parse(localStorage.getItem("tema")); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/compartilhado/base.css">
+  <link rel="stylesheet" href="/inicio/inicio.css">
+  <script src="/compartilhado/comum.js" defer></script>
+  <script src="/compartilhado/config.js" defer></script>
+</head>
+<body class="home">
+
+  <!-- Cabeçalho (apague esta linha para tirar o header desta página) -->
+  <incluir src="componentes/header/header.html">
+    <a class="nav-link" href="#servicos">Serviços</a>
+    <a class="nav-link" href="#equipe">Equipe</a>
+    <a class="nav-link" href="#como-funciona">Como funciona</a>
+    <a class="nav-link" href="#horarios">Horários</a>
+    <a class="btn-peq-ouro" href="/cliente" id="btnEntrarTopo">Entrar</a>
+  </incluir>
+
+  <main>
+    <!-- Topo da página: os textos vêm do banco (o dono edita em "Página inicial") -->
+    <div class="hero">
+      <div class="hero-texto">
+        <p class="selo">👑 {{site.nome}}</p>
+        <h1>{{site.hero_titulo}} <span class="ouro">{{site.hero_destaque}}</span></h1>
+        <p class="hero-sub">{{site.hero_texto}} <strong>{{site.hero_frase}}</strong></p>
+        <div class="hero-botoes">
+          <a class="btn-principal btn-grande" href="/cliente#agendar">📅 Agendar meu horário</a>
+          <a class="btn-secundario btn-grande" href="#como-funciona">Como funciona</a>
+        </div>
+        <div class="acessos">
+          <span class="sub">Faz parte da equipe?</span>
+          <a class="acesso" href="/barbeiro">✂️ Sou barbeiro</a>
+          <a class="acesso" href="/dono">👑 Sou o dono</a>
+        </div>
+      </div>
+      <div class="hero-arte" aria-hidden="true">
+        <div class="hero-circulo"><span>✂</span></div>
+        <div id="heroCartoes"></div>
+      </div>
+    </div>
+
+    <div class="numeros" id="homeNumeros"></div>
+
+    <section class="secao">
+      <p class="selo">{{site.diferenciais_selo}}</p>
+      <h2 class="titulo-grande">{{site.diferenciais_titulo}}</h2>
+      <div class="cards-home" id="homeDiferenciais"></div>
+    </section>
+
+    <section class="secao secao-destaque" id="como-funciona">
+      <p class="selo">{{site.como_selo}}</p>
+      <h2 class="titulo-grande">{{site.como_titulo}}</h2>
+      <div class="passos-home" id="homePassos"></div>
+      <ul class="vantagens" id="homeVantagens"></ul>
+    </section>
+
+    <!-- Módulos: cada linha traz o HTML, o CSS e o JS da seção. Apague a linha para tirar a seção. -->
+    <incluir src="servicos/servicos.html"></incluir>
+    <incluir src="equipe/equipe.html"></incluir>
+    <incluir src="horarios/horarios.html"></incluir>
+
+    <section class="chamada-final">
+      <h2>{{site.chamada_titulo}}</h2>
+      <p>{{site.chamada_texto}}</p>
+      <a class="btn-principal btn-grande" href="/cliente#agendar">📅 Agendar agora</a>
+    </section>
+  </main>
+
+  <!-- Rodapé (apague esta linha para tirar o footer desta página) -->
+  <incluir src="componentes/footer/footer.html"></incluir>
+
+  <div class="aviso" id="aviso"></div>
+  <script src="/inicio/inicio.js" defer></script>
+</body>
+</html>

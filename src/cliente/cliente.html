@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{site.nome}} — Área do Cliente</title>
+  <script>try { var t = JSON.parse(localStorage.getItem("tema")); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/compartilhado/base.css">
+  <link rel="stylesheet" href="/cliente/cliente.css">
+  <script src="/compartilhado/comum.js" defer></script>
+  <script src="/compartilhado/config.js" defer></script>
+</head>
+<body>
+
+  <!-- Cabeçalho (apague esta linha para tirar o header desta página).
+       Os itens com data-so-logado só aparecem depois que o cliente entra. -->
+  <incluir src="componentes/header/header.html" subtitulo="Área do cliente">
+    <button class="nav-link" id="navInicio" data-so-logado hidden>Início</button>
+    <button class="nav-link" id="navAgendar" data-so-logado hidden>Agendar</button>
+    <button class="nav-link" id="navPedidos" data-so-logado hidden>Meus pedidos</button>
+    <button class="nav-link" id="navConfig" data-so-logado hidden>⚙️ Configurações</button>
+    <button class="btn-sair" id="btnSair" data-so-logado hidden>Sair</button>
+  </incluir>
+
+  <!-- ===================== LOGIN ===================== -->
+  <section class="tela tela-login" id="telaLogin" hidden>
+    <div class="caixa-login">
+      <a class="link voltar-site" href="/">← Voltar ao site</a>
+      <div class="logo"><span><span class="coroa">👑</span>✂</span></div>
+      <h1>{{site.nome}}</h1>
+      <p class="sub">Entre para marcar seu horário e ver seus pedidos</p>
+
+      <form id="formEntrar" class="form">
+        <label>WhatsApp
+          <input type="tel" id="entrarTel" required placeholder="(00) 00000-0000" autocomplete="tel">
+        </label>
+        <label>Senha
+          <input type="password" id="entrarSenha" required placeholder="Sua senha" autocomplete="current-password">
+        </label>
+        <button type="button" class="link esqueci" data-esqueci>Esqueci minha senha</button>
+        <p class="erro" id="erroEntrar"></p>
+        <button type="submit" class="btn-principal">Entrar</button>
+        <p class="troca">Ainda não tem conta? <button type="button" class="link" id="irCriar">Criar conta</button></p>
+      </form>
+
+      <form id="formCriar" class="form" hidden>
+        <label>Nome
+          <input type="text" id="criarNome" required placeholder="Seu nome" autocomplete="name">
+        </label>
+        <label>WhatsApp
+          <input type="tel" id="criarTel" required placeholder="(00) 00000-0000" autocomplete="tel">
+        </label>
+        <label>Senha
+          <input type="password" id="criarSenha" required minlength="4" placeholder="Mínimo 4 caracteres" autocomplete="new-password">
+        </label>
+        <p class="erro" id="erroCriar"></p>
+        <button type="submit" class="btn-principal">Criar conta</button>
+        <p class="troca">Já tem conta? <button type="button" class="link" id="irEntrar">Entrar</button></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================== INÍCIO ===================== -->
+  <section class="tela" id="telaInicio" hidden>
+    <main class="conteudo">
+      <div class="boas-vindas">
+        <span class="avatar grande" id="avatarUsuario"></span>
+        <div>
+          <p class="sub" id="saudacao"></p>
+          <h1 id="nomeBoasVindas"></h1>
+        </div>
+      </div>
+
+      <div id="proximoHorario"></div>
+
+      <button class="btn-agendar" id="btnAgendar">
+        <span class="icone">📅</span>
+        <span>
+          <strong>Realizar agendamento</strong>
+          <small>Escolha serviço, barbeiro, horário e produtos</small>
+        </span>
+        <span class="seta">›</span>
+      </button>
+
+      <h2 class="titulo-secao" id="tituloPedidos">Seus pedidos anteriores</h2>
+      <div id="historico"></div>
+    </main>
+  </section>
+
+  <!-- Módulos da área do cliente -->
+  <incluir src="agendamento/agendamento.html"></incluir>
+  <incluir src="pagamento/pagamento.html"></incluir>
+  <incluir src="configuracoes/configuracoes.html"></incluir>
+  <incluir src="recuperar-senha/recuperar-senha.html" tipo="cliente" campo="entrarTel" rotulo="WhatsApp" minimo="4"></incluir>
+
+  <!-- ===================== SUCESSO ===================== -->
+  <!-- ===================== CONFIGURAÇÕES ===================== -->
+  <section class="tela" id="telaConfig" hidden>
+    <main class="conteudo" style="max-width:900px">
+      <h1 class="espaco-baixo">⚙️ Configurações</h1>
+      <div id="configCliente"></div>
+    </main>
+  </section>
+
+  <section class="tela tela-login" id="telaSucesso" hidden>
+    <div class="caixa-login">
+      <div class="logo ok">✓</div>
+      <h1 id="tituloSucesso">Agendamento confirmado!</h1>
+      <div id="detalheSucesso" class="detalhe-sucesso"></div>
+      <button class="btn-principal" id="btnVoltarInicio">Voltar ao início</button>
+    </div>
+  </section>
+
+  <!-- Rodapé (apague esta linha para tirar o footer desta página) -->
+  <incluir src="componentes/footer/footer.html"></incluir>
+
+  <div class="aviso" id="aviso"></div>
+  <script src="/cliente/cliente.js" defer></script>
+</body>
+</html>

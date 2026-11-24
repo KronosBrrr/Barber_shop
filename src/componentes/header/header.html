@@ -1,0 +1,17 @@
+<!--
+  HEADER (cabeçalho) — usado em todas as páginas.
+  Para colocar numa página:   <incluir src="componentes/header/header.html"></incluir>
+  Os links do menu vão entre <incluir> e </incluir> (aparecem no lugar de {{conteudo}}).
+  Atributo opcional: subtitulo="Painel do dono" (aparece embaixo do nome).
+  Para tirar o header de uma página, apague a linha <incluir ...header...>.
+-->
+<link rel="stylesheet" href="/componentes/header/header.css">
+<header class="topo-site" id="topoSite">
+  <a class="marca" href="/">👑 {{site.nome}}<small>{{subtitulo}}</small></a>
+  <nav class="nav-topo" id="navTopo" aria-label="Menu principal">
+    {{conteudo}}
+  </nav>
+  <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
+  <button class="btn-menu" id="btnMenu" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="navTopo">☰</button>
+</header>
+<script src="/componentes/header/header.js" defer></script>

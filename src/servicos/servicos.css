@@ -1,0 +1,8 @@
+/* SERVIÇOS — lista de serviços e preços da página inicial */
+.lista-servicos { max-width: 760px; margin: 0 auto; display: grid; gap: 10px; text-align: left; }
+.servico-home {
+  display: flex; align-items: center; gap: 16px; padding: 16px 20px;
+  background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px;
+}
+.servico-home > div { flex: 1; display: grid; }
+.servico-home .preco { font-size: 1.15rem; font-family: var(--fonte-titulo); }

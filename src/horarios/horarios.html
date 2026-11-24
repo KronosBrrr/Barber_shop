@@ -1,0 +1,12 @@
+<!--
+  MÓDULO HORÁRIOS — dias e horários de funcionamento (vem do banco).
+  Para usar numa página:  <incluir src="horarios/horarios.html"></incluir>
+  A página precisa carregar compartilhado/comum.js e compartilhado/config.js no <head>.
+-->
+<link rel="stylesheet" href="/horarios/horarios.css">
+<section class="secao" id="horarios">
+  <p class="selo">{{site.horarios_selo}}</p>
+  <h2 class="titulo-grande">{{site.horarios_titulo}}</h2>
+  <div class="horarios-home" id="listaHorarios"></div>
+</section>
+<script src="/horarios/horarios.js" defer></script>

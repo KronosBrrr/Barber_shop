@@ -1,0 +1,15 @@
+<!--
+  FOOTER (rodapé) — para colocar numa página:   <incluir src="componentes/footer/footer.html"></incluir>
+  Para tirar de uma página, apague essa linha.
+-->
+<link rel="stylesheet" href="/componentes/footer/footer.css">
+<footer class="rodape-site">
+  <div class="marca">👑 {{site.nome}}</div>
+  <nav class="links-rodape" aria-label="Links do rodapé">
+    <a href="/">Página inicial</a>
+    <a href="/cliente">Área do cliente</a>
+    <a href="/barbeiro">Área do barbeiro</a>
+    <a href="/dono">Área do dono</a>
+  </nav>
+  <p class="sub">© {{ano}} {{site.nome}} · {{site.rodape_texto}}</p>
+</footer>
