@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Barbearia — Painel do Dono</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dono.css">
+</head>
+<body>
+
+  <!-- ===== LOGIN DO DONO ===== -->
+  <section class="tela tela-login" id="telaLoginDono">
+    <div class="caixa-login">
+      <div class="logo">✂</div>
+      <h1>Painel do dono</h1>
+      <p class="sub">Acesso restrito à administração</p>
+      <form id="formDono" class="form">
+        <label>Usuário
+          <input type="text" id="usuarioDono" required autocomplete="username" autocapitalize="none">
+        </label>
+        <label>Senha
+          <input type="password" id="senhaDono" required autocomplete="current-password">
+        </label>
+        <p class="erro" id="erroDono"></p>
+        <button type="submit" class="btn-principal">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== PAINEL ===== -->
+  <div class="tela app-dono" id="telaDono" hidden>
+    <aside class="menu">
+      <div class="marca">✂ Barbearia <small>Painel do dono</small></div>
+      <nav id="nav"></nav>
+      <button class="btn-sair" id="sairDono">Sair</button>
+    </aside>
+    <main class="area" id="conteudo"></main>
+  </div>
+
+  <!-- ===== JANELA (modal) ===== -->
+  <div class="modal-fundo" id="modal" hidden>
+    <form class="modal" id="modalForm">
+      <div class="modal-topo">
+        <h2 id="modalTitulo"></h2>
+        <button type="button" class="fechar" id="modalFechar" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo" id="modalCorpo"></div>
+      <div class="modal-acoes">
+        <button type="button" class="btn-secundario" id="modalCancelar">Cancelar</button>
+        <button type="submit" class="btn-principal" id="modalOk">Salvar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="aviso" id="aviso"></div>
+
+  <script src="comum.js"></script>
+  <script src="dados.js"></script>
+  <script src="dono.js"></script>
+</body>
+</html>

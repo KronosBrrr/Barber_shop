@@ -1,0 +1,15 @@
+# Banco de dados (tem dados de clientes e senhas — não vai para o GitHub)
+servidor/barbearia.db
+servidor/barbearia.db-journal
+servidor/barbearia.db-wal
+servidor/barbearia.db-shm
+backup-barbearia-*.db
+
+# Python
+__pycache__/
+*.pyc
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
