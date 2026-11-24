@@ -1,0 +1,7 @@
+/* EQUIPE — cartões dos barbeiros com foto */
+.equipe { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; max-width: 900px; margin: 0 auto; }
+.membro {
+  background: var(--cartao); border: 1px solid var(--borda); border-radius: 20px; padding: 28px 20px;
+  display: grid; justify-items: center; gap: 8px;
+}
+.membro h3 { margin-top: 8px; }

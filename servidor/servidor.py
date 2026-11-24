@@ -22,13 +22,15 @@ import threading
 import traceback
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
+from html import escape as html_escape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+import mensagens as msg
 import pagamentos as pag
 
 PASTA = os.path.dirname(os.path.abspath(__file__))
-PASTA_SITE = os.path.normpath(os.path.join(PASTA, "..", "cliente"))
+PASTA_SITE = os.path.normpath(os.path.join(PASTA, "..", "src"))   # módulos do site (HTML, CSS, JS)
 BANCO = os.environ.get("BARBEARIA_BANCO") or os.path.join(PASTA, "barbearia.db")  # outro arquivo só para testes
 SCHEMA = os.path.join(PASTA, "schema.sql")
 PORTA = int(os.environ.get("PORTA", "8000"))
@@ -37,9 +39,70 @@ DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sá
 FORMAS_APP = ["Pix", "Cartão de crédito", "Cartão de débito", "Pagar na barbearia"]
 FORMAS_BALCAO = ["Dinheiro", "Pix", "Cartão de débito", "Cartão de crédito"]
 FORMAS_PAG_BARBEIRO = ["Pix pelo site", "Pix", "Dinheiro", "Transferência"]
+SENHA_MINIMA = {"cliente": 4, "barbeiro": 4, "dono": 6}
+CODIGO_VALIDADE_MIN = 15      # o código de recuperação vale 15 minutos
+CODIGO_TENTATIVAS = 5         # depois disso, é preciso pedir outro código
+CODIGOS_POR_HORA = 3          # no máximo 3 códigos por conta a cada hora
 FOTO_MAX_BYTES = 1_500_000
 INTERVALOS = [15, 20, 30, 40, 45, 60]
-MAX_PARCELAS = 3
+DIAS_ANTECEDENCIA = [7, 14, 21, 30, 60]
+MAX_PARCELAS_LIMITE = 12          # o dono escolhe até quantas vezes (padrão 3), no máximo isto
+CHAVE_PIX_EXEMPLO = "123e4567-e89b-12d3-a456-426614174000"
+CATEGORIAS_DESPESA_PADRAO = ["Aluguel", "Energia", "Água", "Internet", "Manutenção",
+                             "Material de uso (lâminas, toalhas...)", "Marketing", "Impostos", "Outros"]
+
+# Páginas do site: endereço -> arquivo dentro de src/
+PAGINAS = {"/": "inicio/inicio.html", "/cliente": "cliente/cliente.html",
+           "/dono": "dono/dono.html", "/barbeiro": "barbeiro/barbeiro.html"}
+
+# Textos da página inicial (ficam na tabela "configuracoes" com o prefixo site_).
+# (chave, rótulo no painel do dono, texto padrão, tamanho máximo). "{nome}" vira o nome da barbearia.
+SITE_TEXTOS = [
+    ("nome", "Nome da barbearia", "Barbearia Real", 40),
+    ("hero_titulo", "Título principal", "Seu estilo merece um", 80),
+    ("hero_destaque", "Final do título (em dourado)", "atendimento de rei.", 60),
+    ("hero_texto", "Texto de apresentação", "Cortes clássicos e modernos, barba na toalha quente e produtos selecionados. "
+     "Agora você agenda pelo celular: escolhe o barbeiro, vê os horários livres e paga como preferir.", 400),
+    ("hero_frase", "Frase em destaque no fim do texto", "Sem fila, sem ligação, sem espera.", 80),
+    ("tempo_agendar", "Tempo para agendar (aparece nos números)", "1 min", 12),
+    ("diferenciais_selo", "Diferenciais: etiqueta", "Por que a {nome}", 60),
+    ("diferenciais_titulo", "Diferenciais: título", "Mais que um corte: uma experiência.", 80),
+    ("como_selo", "Como funciona: etiqueta", "O site trabalha por você", 60),
+    ("como_titulo", "Como funciona: título", "Ser atendido nunca foi tão fácil.", 80),
+    ("servicos_selo", "Serviços: etiqueta", "Serviços", 60),
+    ("servicos_titulo", "Serviços: título", "Preços claros, sem surpresa.", 80),
+    ("equipe_selo", "Equipe: etiqueta", "Nossa equipe", 60),
+    ("equipe_titulo", "Equipe: título", "Conheça quem vai cuidar do seu visual.", 80),
+    ("horarios_selo", "Horários: etiqueta", "Horários", 60),
+    ("horarios_titulo", "Horários: título", "Estamos esperando por você.", 80),
+    ("chamada_titulo", "Chamada final: título", "Pronto para sair na régua?", 80),
+    ("chamada_texto", "Chamada final: texto", "Seu próximo horário está a um clique.", 120),
+    ("rodape_texto", "Rodapé: texto depois do nome", "Agendamento online", 80),
+]
+# Listas da página inicial (tabela site_itens). campos = quais colunas a seção usa.
+SITE_SECOES = {
+    "destaque":    {"rotulo": "Cartões ao lado do título", "campos": ["icone", "texto"], "maximo": 3},
+    "diferencial": {"rotulo": "Diferenciais", "campos": ["icone", "titulo", "texto"], "maximo": 8},
+    "passo":       {"rotulo": "Como funciona (passos)", "campos": ["titulo", "texto"], "maximo": 6},
+    "vantagem":    {"rotulo": "Vantagens do site", "campos": ["texto"], "maximo": 10},
+}
+SITE_ITENS_PADRAO = [
+    ("destaque", "⭐", "", "Atendimento de excelência"),
+    ("destaque", "⚡", "", "Pague por Pix ou cartão"),
+    ("destaque", "🎁", "", "Produtos entregues no seu horário"),
+    ("diferencial", "👑", "Atendimento de rei", "Cada cliente é recebido com atenção total. Do café na chegada ao acabamento final, cuidamos de cada detalhe."),
+    ("diferencial", "✂️", "Mãos experientes", "Barbeiros especialistas em degradê, navalhado, barba e química, sempre atualizados com as tendências."),
+    ("diferencial", "🧴", "Produtos selecionados", "Pomadas, géis, óleos e minoxidil de qualidade. Peça junto com o agendamento e receba no seu horário."),
+    ("diferencial", "🛋️", "Ambiente confortável", "Um espaço pensado para você relaxar, conversar e sair renovado, com pontualidade de verdade."),
+    ("passo", "", "Escolha o serviço", "Corte, barba, sobrancelha, pigmentação... com preço e duração na tela."),
+    ("passo", "", "Escolha seu barbeiro", "Veja a foto e a especialidade de cada um e marque com quem você confia."),
+    ("passo", "", "Marque o horário", "Só aparecem os horários livres. Nada de ligar, esperar resposta ou ficar na fila."),
+    ("passo", "", "Pague como quiser", "Pix com QR code, cartão de crédito parcelado, débito ou na barbearia."),
+    ("vantagem", "", "", "Seus pedidos e horários ficam salvos na sua conta"),
+    ("vantagem", "", "", "Cancele pelo app; se já pagou, o reembolso é automático"),
+    ("vantagem", "", "", "Produtos separados e entregues no dia do seu atendimento"),
+    ("vantagem", "", "", "Funciona no celular e no computador, no modo claro ou escuro"),
+]
 
 TRAVA = threading.Lock()  # uma alteração por vez, para dois clientes não pegarem o mesmo horário
 
@@ -226,6 +289,33 @@ def cfg_valor(db, chave, padrao):
     return r["valor"] if r else padrao
 
 
+def max_parcelas(db):
+    return int(cfg_valor(db, "max_parcelas", "3"))
+
+
+def categorias_despesa(db):
+    salvas = json.loads(cfg_valor(db, "categorias_despesa", json.dumps(CATEGORIAS_DESPESA_PADRAO)))
+    usadas = [r[0] for r in db.execute("SELECT DISTINCT categoria FROM despesas ORDER BY categoria")]
+    return salvas + [c for c in usadas if c not in salvas]
+
+
+def textos_site(db, bruto=False):
+    """Textos da página inicial. bruto=True devolve como o dono digitou (com {nome})."""
+    salvos = {r["chave"][5:]: r["valor"] for r in db.execute("SELECT * FROM configuracoes WHERE chave LIKE 'site^_%' ESCAPE '^'")}
+    textos = {k: salvos.get(k, padrao) for k, _, padrao, _ in SITE_TEXTOS}
+    if not bruto:
+        textos = {k: v.replace("{nome}", textos["nome"]) for k, v in textos.items()}
+    return textos
+
+
+def itens_site(db):
+    itens = {s: [] for s in SITE_SECOES}
+    for r in db.execute("SELECT * FROM site_itens ORDER BY secao, ordem, id"):
+        if r["secao"] in itens:
+            itens[r["secao"]].append({"icone": r["icone"], "titulo": r["titulo"], "texto": r["texto"]})
+    return itens
+
+
 def reservados(db):
     """Quantidade de cada produto já pedida em agendamentos ainda não atendidos."""
     return {r["produto_id"]: r["q"] for r in db.execute(
@@ -275,15 +365,21 @@ def ler_config(db, completo):
     pagamentos = {"pixAtivo": bool(chave) or mp, "pixAutomatico": mp,
                   "modoCartao": "mercadopago" if mp else pag.PROVEDOR_CARTAO.nome,
                   "mpPublicKey": cfg_valor(db, "mp_public_key", "") if mp else "",
-                  "maxParcelas": MAX_PARCELAS, "recebedor": cfg_valor(db, "pix_recebedor", "")}
+                  "maxParcelas": max_parcelas(db), "recebedor": cfg_valor(db, "pix_recebedor", "")}
+    site = {"textos": textos_site(db), "itens": itens_site(db)}
     if completo:
         token = cfg_valor(db, "mp_access_token", "")
         pagamentos.update(chavePix=chave, cidade=cfg_valor(db, "pix_cidade", ""),
+                          chaveExemplo=chave == CHAVE_PIX_EXEMPLO,
                           mpPublicKey=cfg_valor(db, "mp_public_key", ""),
                           mpTokenFinal=token[-6:] if token else "",          # nunca devolve o token inteiro
                           mpTeste=token.startswith("TEST-"))
+        # para o painel do dono montar o formulário da página inicial
+        site.update(textosBrutos=textos_site(db, bruto=True),
+                    campos=[{"chave": k, "rotulo": rot, "maximo": m} for k, rot, _, m in SITE_TEXTOS],
+                    secoes=SITE_SECOES)
     return {"servicos": servicos, "barbeiros": barbeiros, "produtos": produtos,
-            "funcionamento": ler_funcionamento(db), "pagamentos": pagamentos}
+            "funcionamento": ler_funcionamento(db), "pagamentos": pagamentos, "site": site}
 
 
 def ler_agendamentos(db, onde="", params=(), para_cliente=False):
@@ -709,7 +805,7 @@ def r_cartao(c):
     tipo = c.corpo.get("tipo")
     if tipo not in ("credito", "debito"):
         raise Erro("Escolha crédito ou débito.")
-    parcelas = 1 if tipo == "debito" else numero(c.corpo.get("parcelas", 1), "parcelas", 1, MAX_PARCELAS, inteiro=True)
+    parcelas = 1 if tipo == "debito" else numero(c.corpo.get("parcelas", 1), "parcelas", 1, max_parcelas(c.db), inteiro=True)
 
     mp = mercado_pago(c.db)
     if mp:
@@ -785,9 +881,10 @@ def r_dados(c):
                                  WHERE p.status = 'aguardando' AND p.provedor = 'mercadopago' AND p.criado_em > ? LIMIT 10""",
                               ((agora() - timedelta(days=2)).isoformat(),)).fetchall():
             atualizar_pix_mp(c.db, a)
-    dono = c.db.execute("SELECT nome, usuario FROM donos WHERE id = ?", (c.usuario_id,)).fetchone()
+    dono = c.db.execute("SELECT nome, usuario, email, telefone FROM donos WHERE id = ?", (c.usuario_id,)).fetchone()
     return {
-        "dono": {"nome": dono["nome"], "usuario": dono["usuario"]},
+        "dono": {"nome": dono["nome"], "usuario": dono["usuario"], "email": dono["email"], "telefone": dono["telefone"]},
+        "mensagens": config_mensagens_publica(c.db),
         "config": ler_config(c.db, completo=True),
         "agendamentos": ler_agendamentos(c.db),
         "usuarios": [cliente_json(r) for r in c.db.execute("SELECT * FROM clientes ORDER BY nome")],
@@ -796,7 +893,38 @@ def r_dados(c):
                        for r in c.db.execute("""SELECT p.*, b.nome FROM pagamentos_barbeiros p
                                                 JOIN barbeiros b ON b.id = p.barbeiro_id ORDER BY p.data""")],
         "despesas": [dict(r) for r in c.db.execute("SELECT * FROM despesas ORDER BY data")],
+        # listas de opções dos formulários (uma fonte só: o servidor)
+        "opcoes": {"formasApp": FORMAS_APP, "formasBalcao": FORMAS_BALCAO, "formasPagBarbeiro": FORMAS_PAG_BARBEIRO,
+                   "intervalos": INTERVALOS, "diasAntecedencia": DIAS_ANTECEDENCIA, "maxParcelasLimite": MAX_PARCELAS_LIMITE,
+                   "categoriasDespesa": categorias_despesa(c.db)},
     }
+
+
+@rota("PUT", "/api/dono/site", "dono")
+def r_salvar_site(c):
+    """Textos e listas da página inicial."""
+    db, corpo = c.db, c.corpo
+    textos = corpo.get("textos")
+    if not isinstance(textos, dict):
+        raise Erro("Textos inválidos.")
+    for chave, rotulo, _, maximo in SITE_TEXTOS:
+        valor = texto(textos, chave, chave == "nome", maximo, rotulo)
+        db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)", ("site_" + chave, valor))
+    itens = corpo.get("itens")
+    if not isinstance(itens, dict):
+        raise Erro("Listas inválidas.")
+    db.execute("DELETE FROM site_itens")
+    for secao, regra in SITE_SECOES.items():
+        lista_secao = lista(itens, secao) if secao in itens else []
+        if len(lista_secao) > regra["maximo"]:
+            raise Erro(f"{regra['rotulo']}: no máximo {regra['maximo']} itens.")
+        for ordem, item in enumerate(lista_secao):
+            if not isinstance(item, dict):
+                raise Erro(f"{regra['rotulo']}: item inválido.")
+            valores = {campo: texto(item, campo, campo in ("texto", "titulo"), 8 if campo == "icone" else 200, f"{regra['rotulo']} ({campo})")
+                       if campo in regra["campos"] else "" for campo in ("icone", "titulo", "texto")}
+            db.execute("INSERT INTO site_itens (secao, ordem, icone, titulo, texto) VALUES (?, ?, ?, ?, ?)",
+                       (secao, ordem, valores["icone"], valores["titulo"], valores["texto"]))
 
 
 @rota("PUT", "/api/dono/config", "dono")
@@ -868,6 +996,9 @@ def r_salvar_config(c):
         for chave_cfg, valor in [("pix_chave", chave), ("pix_recebedor", texto(p, "recebedor", bool(chave), 25, "nome do recebedor")),
                                  ("pix_cidade", texto(p, "cidade", bool(chave), 15, "cidade"))]:
             db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)", (chave_cfg, valor))
+        if "maxParcelas" in p:
+            vezes = numero(p.get("maxParcelas"), "número de parcelas", 1, MAX_PARCELAS_LIMITE, inteiro=True)
+            db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('max_parcelas', ?)", (str(vezes),))
 
     f = cfg.get("funcionamento")
     if f is not None:
@@ -1145,7 +1276,7 @@ def r_dados_barbeiro(c):
     return {
         "barbeiro": {"id": b["id"], "nome": b["nome"], "telefone": b["telefone"], "especialidade": b["especialidade"],
                      "folga": json.loads(b["folga"]), "comissao": b["comissao"], "comissaoProdutos": b["comissao_produtos"],
-                     "chavePix": b["chave_pix"], "foto": url_foto(b), "entrouEm": b["entrou_em"]},
+                     "chavePix": b["chave_pix"], "foto": url_foto(b), "entrouEm": b["entrou_em"], "email": b["email"]},
         "agendamentos": ags,
         "pagamentos": pagos,
         "saldo": saldo_barbeiro(c.db, b["id"]),
@@ -1155,14 +1286,7 @@ def r_dados_barbeiro(c):
 
 @rota("POST", "/api/barbeiro/senha", "barbeiro")
 def r_senha_barbeiro(c):
-    b = c.db.execute("SELECT * FROM barbeiros WHERE id = ?", (c.usuario_id,)).fetchone()
-    atual, nova = c.corpo.get("atual"), c.corpo.get("nova")
-    if not isinstance(atual, str) or not conferir_senha(atual, b["senha_hash"]):
-        raise Erro("A senha atual está errada.")
-    if not isinstance(nova, str) or len(nova) < 4:
-        raise Erro("A nova senha precisa ter pelo menos 4 caracteres.")
-    c.db.execute("UPDATE barbeiros SET senha_hash = ? WHERE id = ?", (gerar_hash(nova), b["id"]))
-    c.db.execute("DELETE FROM sessoes WHERE tipo = 'barbeiro' AND usuario_id = ? AND token != ?", (b["id"], c.token))
+    trocar_senha(c, "barbeiro", "barbeiros", c.usuario_id)
 
 
 @rota("POST", "/api/dono/despesas", "dono")
@@ -1183,14 +1307,254 @@ def r_excluir_despesa(c):
 
 @rota("POST", "/api/dono/senha", "dono")
 def r_trocar_senha(c):
-    r = c.db.execute("SELECT * FROM donos WHERE id = ?", (c.usuario_id,)).fetchone()
+    trocar_senha(c, "dono", "donos", c.usuario_id)
+
+# =====================================================================
+#  Minha conta (configurações de cada interface)
+# =====================================================================
+def email_valido(c, campo="email"):
+    v = texto(c.corpo, campo, False, 120, "e-mail").lower()
+    if v and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v):
+        raise Erro("Digite um e-mail válido (ex.: nome@gmail.com).")
+    return v
+
+
+def trocar_senha(c, tipo, tabela, usuario_id):
+    r = c.db.execute(f"SELECT senha_hash FROM {tabela} WHERE id = ?", (usuario_id,)).fetchone()
     atual, nova = c.corpo.get("atual"), c.corpo.get("nova")
-    if not isinstance(atual, str) or not conferir_senha(atual, r["senha_hash"]):
+    if not isinstance(atual, str) or not r["senha_hash"] or not conferir_senha(atual, r["senha_hash"]):
         raise Erro("A senha atual está errada.")
-    if not isinstance(nova, str) or len(nova) < 6:
-        raise Erro("A nova senha precisa ter pelo menos 6 caracteres.")
-    c.db.execute("UPDATE donos SET senha_hash = ? WHERE id = ?", (gerar_hash(nova), r["id"]))
-    c.db.execute("DELETE FROM sessoes WHERE tipo = 'dono' AND usuario_id = ? AND token != ?", (r["id"], c.token))
+    if not isinstance(nova, str) or len(nova) < SENHA_MINIMA[tipo]:
+        raise Erro(f"A nova senha precisa ter pelo menos {SENHA_MINIMA[tipo]} caracteres.")
+    c.db.execute(f"UPDATE {tabela} SET senha_hash = ? WHERE id = ?", (gerar_hash(nova), usuario_id))
+    # os outros aparelhos conectados saem da conta
+    c.db.execute("DELETE FROM sessoes WHERE tipo = ? AND usuario_id = ? AND token != ?", (tipo, str(usuario_id), c.token))
+
+
+@rota("PUT", "/api/clientes/eu", "cliente")
+def r_cliente_conta(c):
+    nome = texto(c.corpo, "nome", maximo=80)
+    c.db.execute("UPDATE clientes SET nome = ?, email = ? WHERE id = ?", (nome, email_valido(c), c.usuario_id))
+    # o nome novo aparece nos horários que ainda vão acontecer
+    c.db.execute("UPDATE agendamentos SET cliente_nome = ? WHERE cliente_id = ? AND status = 'confirmado'", (nome, c.usuario_id))
+    return {"cliente": cliente_json(c.db.execute("SELECT * FROM clientes WHERE id = ?", (c.usuario_id,)).fetchone())}
+
+
+@rota("POST", "/api/clientes/senha", "cliente")
+def r_cliente_senha(c):
+    trocar_senha(c, "cliente", "clientes", c.usuario_id)
+
+
+@rota("PUT", "/api/barbeiro/eu", "barbeiro")
+def r_barbeiro_conta(c):
+    c.db.execute("UPDATE barbeiros SET email = ? WHERE id = ?", (email_valido(c), c.usuario_id))
+
+
+@rota("PUT", "/api/dono/eu", "dono")
+def r_dono_conta(c):
+    tel = digitos(c.corpo.get("telefone"))
+    if tel and len(tel) not in (10, 11):
+        raise Erro("Digite o WhatsApp com DDD.")
+    c.db.execute("UPDATE donos SET nome = ?, email = ?, telefone = ? WHERE id = ?",
+                 (texto(c.corpo, "nome", maximo=60), email_valido(c), tel, c.usuario_id))
+
+
+# =====================================================================
+#  Esqueci minha senha (código por e-mail ou WhatsApp)
+# =====================================================================
+MSG_CHAVES = ["smtp_host", "smtp_porta", "smtp_usuario", "smtp_senha", "smtp_remetente", "wa_token", "wa_numero_id", "wa_modelo"]
+
+
+def config_mensagens(db):
+    cfg = {k: cfg_valor(db, "msg_" + k, "") for k in MSG_CHAVES + ["ultimo_erro"]}
+    email = None
+    if cfg["smtp_host"] and cfg["smtp_usuario"] and cfg["smtp_senha"]:
+        email = {"host": cfg["smtp_host"], "porta": cfg["smtp_porta"] or "465", "usuario": cfg["smtp_usuario"],
+                 "senha": cfg["smtp_senha"], "remetente": cfg["smtp_remetente"]}
+    whatsapp = {"token": cfg["wa_token"], "numero_id": cfg["wa_numero_id"], "modelo": cfg["wa_modelo"]} \
+        if cfg["wa_token"] and cfg["wa_numero_id"] else None
+    return email, whatsapp, cfg
+
+
+def config_mensagens_publica(db):
+    """O que o painel do dono pode ver (as senhas e o token nunca voltam para a tela)."""
+    email, whatsapp, cfg = config_mensagens(db)
+    return {"emailAtivo": bool(email), "whatsappAtivo": bool(whatsapp),
+            "smtpHost": cfg["smtp_host"], "smtpPorta": cfg["smtp_porta"] or "465", "smtpUsuario": cfg["smtp_usuario"],
+            "smtpRemetente": cfg["smtp_remetente"], "smtpSenhaGuardada": bool(cfg["smtp_senha"]),
+            "waNumeroId": cfg["wa_numero_id"], "waModelo": cfg["wa_modelo"], "waTokenFinal": cfg["wa_token"][-6:],
+            "ultimoErro": cfg["ultimo_erro"]}
+
+
+CONTAS = {  # tipo -> (tabela, coluna usada no login)
+    "cliente": ("clientes", "telefone"),
+    "barbeiro": ("barbeiros", "telefone"),
+    "dono": ("donos", "usuario"),
+}
+
+
+def achar_conta(db, tipo, login):
+    tabela, coluna = CONTAS[tipo]
+    valor = login.strip().lower() if coluna == "usuario" else digitos(login)
+    if not valor:
+        return None
+    extra = " AND ativo = 1" if tipo == "barbeiro" else ""
+    return db.execute(f"SELECT * FROM {tabela} WHERE {coluna} = ?{extra}", (valor,)).fetchone()
+
+
+def registrar_erro_envio(texto_erro):
+    try:
+        with conectar() as db:
+            db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('msg_ultimo_erro', ?)",
+                       (f"{agora():%d/%m %H:%M} · {texto_erro}" if texto_erro else "",))
+    except Exception:
+        traceback.print_exc()
+
+
+def enviar_em_segundo_plano(funcao, *args):
+    """Manda a mensagem sem travar o site; se falhar, o erro aparece no painel do dono."""
+    def tarefa():
+        try:
+            funcao(*args)
+            registrar_erro_envio("")
+        except msg.FalhaEnvio as e:
+            print(f"[envio] {e}")
+            registrar_erro_envio(str(e))
+        except Exception as e:
+            traceback.print_exc()
+            registrar_erro_envio(f"Erro inesperado: {e}")
+    threading.Thread(target=tarefa, daemon=True).start()
+
+
+@rota("POST", "/api/recuperar/pedir")
+def r_recuperar_pedir(c):
+    tipo = c.corpo.get("tipo")
+    canal = c.corpo.get("canal")
+    if tipo not in CONTAS or canal not in ("email", "whatsapp"):
+        raise Erro("Pedido inválido.")
+    login = texto(c.corpo, "login", maximo=80, nome="WhatsApp" if tipo != "dono" else "usuário")
+    email_cfg, wa_cfg, _ = config_mensagens(c.db)
+    modo_teste = not (email_cfg if canal == "email" else wa_cfg)
+    resposta = {"mensagem": ("Se houver uma conta com esses dados, o código chega em alguns minutos "
+                             f"{'no seu e-mail' if canal == 'email' else 'no seu WhatsApp'}. Ele vale por {CODIGO_VALIDADE_MIN} minutos."),
+                "modoTeste": modo_teste}
+    conta = achar_conta(c.db, tipo, login)
+    destino = None
+    if conta:
+        destino = conta["email"] if canal == "email" else conta["telefone"]
+    if not conta or not destino:
+        return resposta     # mesma resposta: não revela quem tem conta
+    uid = str(conta["id"])
+    uma_hora = (agora() - timedelta(hours=1)).isoformat()
+    if c.db.execute("SELECT COUNT(*) FROM codigos_recuperacao WHERE tipo = ? AND usuario_id = ? AND criado_em > ?",
+                    (tipo, uid, uma_hora)).fetchone()[0] >= CODIGOS_POR_HORA:
+        raise Erro("Você já pediu vários códigos. Espere uma hora e tente de novo.", 429)
+
+    codigo = f"{secrets.randbelow(1_000_000):06d}"
+    c.db.execute("UPDATE codigos_recuperacao SET usado = 1 WHERE tipo = ? AND usuario_id = ?", (tipo, uid))
+    c.db.execute("""INSERT INTO codigos_recuperacao (tipo, usuario_id, codigo_hash, canal, criado_em, expira_em)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                 (tipo, uid, gerar_hash(codigo), canal, agora().isoformat(),
+                  (agora() + timedelta(minutes=CODIGO_VALIDADE_MIN)).isoformat()))
+    nome_loja = textos_site(c.db)["nome"]
+    texto_msg = (f"{nome_loja}: seu código para criar uma nova senha é {codigo}. "
+                 f"Ele vale por {CODIGO_VALIDADE_MIN} minutos. Se não foi você que pediu, ignore esta mensagem.")
+    if modo_teste:
+        print(f"\n  [MODO TESTE] {'E-mail' if canal == 'email' else 'WhatsApp'} não configurado. "
+              f"Código de recuperação de {conta['nome']} ({tipo}): {codigo}\n")
+    elif canal == "email":
+        enviar_em_segundo_plano(msg.enviar_email, email_cfg, destino, f"{nome_loja} — código para nova senha",
+                                f"Olá, {conta['nome'].split(' ')[0]}!\n\n{texto_msg}\n")
+    else:
+        enviar_em_segundo_plano(msg.enviar_whatsapp, wa_cfg, destino, codigo, texto_msg)
+    return resposta
+
+
+@rota("POST", "/api/recuperar/confirmar")
+def r_recuperar_confirmar(c):
+    tipo = c.corpo.get("tipo")
+    if tipo not in CONTAS:
+        raise Erro("Pedido inválido.")
+    login = texto(c.corpo, "login", maximo=80, nome="login")
+    codigo = digitos(c.corpo.get("codigo"))
+    nova = c.corpo.get("nova")
+    if not isinstance(nova, str) or len(nova) < SENHA_MINIMA[tipo]:
+        raise Erro(f"A nova senha precisa ter pelo menos {SENHA_MINIMA[tipo]} caracteres.")
+    conta = achar_conta(c.db, tipo, login)
+    pedido = conta and c.db.execute(
+        """SELECT * FROM codigos_recuperacao WHERE tipo = ? AND usuario_id = ? AND usado = 0 AND expira_em > ?
+           ORDER BY id DESC LIMIT 1""", (tipo, str(conta["id"]), agora().isoformat())).fetchone()
+    if not pedido:
+        raise Erro("Código inválido ou vencido. Peça um novo código.")
+    if pedido["tentativas"] >= CODIGO_TENTATIVAS:
+        raise Erro("Muitas tentativas erradas. Peça um novo código.", 429)
+    if len(codigo) != 6 or not conferir_senha(codigo, pedido["codigo_hash"]):
+        # grava a tentativa numa conexão à parte: o erro abaixo desfaz tudo o que foi feito nesta
+        with conectar() as db2:
+            db2.execute("UPDATE codigos_recuperacao SET tentativas = tentativas + 1 WHERE id = ?", (pedido["id"],))
+        restam = CODIGO_TENTATIVAS - pedido["tentativas"] - 1
+        raise Erro(f"Código errado. {'Você ainda tem ' + str(restam) + ' tentativa(s).' if restam else 'Peça um novo código.'}")
+    tabela = CONTAS[tipo][0]
+    c.db.execute(f"UPDATE {tabela} SET senha_hash = ? WHERE id = ?", (gerar_hash(nova), conta["id"]))
+    c.db.execute("UPDATE codigos_recuperacao SET usado = 1 WHERE tipo = ? AND usuario_id = ?", (tipo, str(conta["id"])))
+    c.db.execute("DELETE FROM sessoes WHERE tipo = ? AND usuario_id = ?", (tipo, str(conta["id"])))
+    return {"mensagem": "Senha nova criada! Entre com ela."}
+
+
+@rota("PUT", "/api/dono/mensagens", "dono")
+def r_salvar_mensagens(c):
+    """Configura o envio dos códigos. Campos de senha/token vazios = manter o que já estava."""
+    b = c.corpo
+    if b.get("remover") in ("email", "whatsapp"):
+        prefixo = "msg_smtp_%" if b["remover"] == "email" else "msg_wa_%"
+        c.db.execute("DELETE FROM configuracoes WHERE chave LIKE ?", (prefixo,))
+        return {"mensagem": "Envio desligado."}
+    # só muda o que veio no pedido
+    leitores = {
+        "smtpHost": ("smtp_host", lambda: texto(b, "smtpHost", False, 120, "servidor de e-mail")),
+        "smtpPorta": ("smtp_porta", lambda: str(numero(b.get("smtpPorta") or 465, "porta", 1, 65535, inteiro=True))),
+        "smtpUsuario": ("smtp_usuario", lambda: texto(b, "smtpUsuario", False, 120, "usuário do e-mail")),
+        "smtpRemetente": ("smtp_remetente", lambda: texto(b, "smtpRemetente", False, 120, "remetente")),
+        "waNumeroId": ("wa_numero_id", lambda: digitos(b.get("waNumeroId"))),
+        "waModelo": ("wa_modelo", lambda: texto(b, "waModelo", False, 60, "modelo do WhatsApp")),
+    }
+    valores = {chave: ler() for campo, (chave, ler) in leitores.items() if campo in b}
+    if b.get("smtpSenha"):
+        valores["smtp_senha"] = texto(b, "smtpSenha", True, 200, "senha do e-mail")
+    if b.get("waToken"):
+        valores["wa_token"] = texto(b, "waToken", True, 1000, "token do WhatsApp")
+    for k, v in valores.items():
+        c.db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)", ("msg_" + k, v))
+
+
+@rota("POST", "/api/dono/mensagens/teste", "dono")
+def r_testar_mensagens(c):
+    """Manda uma mensagem de teste agora e diz se deu certo."""
+    canal = c.corpo.get("canal")
+    email_cfg, wa_cfg, _ = config_mensagens(c.db)
+    nome_loja = textos_site(c.db)["nome"]
+    texto_msg = f"{nome_loja}: teste de envio. Se você recebeu, a recuperação de senha está funcionando. Código de exemplo: 123456"
+    try:
+        if canal == "email":
+            if not email_cfg:
+                raise Erro("Preencha e salve os dados do e-mail primeiro.")
+            para = email_valido(c, "destino")
+            if not para:
+                raise Erro("Digite o e-mail que vai receber o teste.")
+            msg.enviar_email(email_cfg, para, f"{nome_loja} — teste de envio", texto_msg)
+        elif canal == "whatsapp":
+            if not wa_cfg:
+                raise Erro("Preencha e salve os dados do WhatsApp primeiro.")
+            tel = digitos(c.corpo.get("destino"))
+            if len(tel) not in (10, 11):
+                raise Erro("Digite o WhatsApp que vai receber o teste, com DDD.")
+            msg.enviar_whatsapp(wa_cfg, tel, "123456", texto_msg)
+        else:
+            raise Erro("Canal inválido.")
+    except msg.FalhaEnvio as e:
+        raise Erro(str(e), 502)
+    return {"mensagem": "Mensagem de teste enviada! Confira se chegou."}
+
 
 
 @rota("GET", "/api/dono/backup", "dono")
@@ -1200,6 +1564,65 @@ def r_backup(c):
     dados = copia.serialize()
     copia.close()
     return Arquivo(dados, "application/vnd.sqlite3", f"backup-barbearia-{hoje().isoformat()}.db")
+
+
+# =====================================================================
+#  Montagem das páginas (header, footer e seções em arquivos separados)
+# =====================================================================
+# Numa página, a linha
+#     <incluir src="componentes/header/header.html" subtitulo="Painel do dono">...links...</incluir>
+# é trocada pelo conteúdo do arquivo. Dentro do arquivo incluído:
+#     {{conteudo}}   = o que estava entre <incluir> e </incluir>
+#     {{subtitulo}}  = qualquer atributo da linha <incluir> (vazio se não tiver)
+# Em qualquer página:  {{site.nome}}, {{site.hero_titulo}}... = textos do banco  ·  {{ano}} = ano atual
+INCLUIR = re.compile(r"<!--.*?-->|<incluir\s+([^>]*?)\s*(?:/>|>(.*?)</incluir>)", re.S)   # comentários ficam como estão
+COMENTARIO = re.compile(r"<!--.*?-->", re.S)
+ATRIBUTO = re.compile(r'([\w-]+)\s*=\s*"([^"]*)"')
+MARCADOR = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
+
+
+def ler_arquivo_site(relativo):
+    caminho = os.path.normpath(os.path.join(PASTA_SITE, relativo.lstrip("/")))
+    if not caminho.startswith(PASTA_SITE + os.sep):       # não deixa sair da pasta src
+        raise FileNotFoundError(relativo)
+    with open(caminho, encoding="utf-8") as arq:
+        return arq.read()
+
+
+def juntar_inclusoes(html, profundidade=0):
+    if profundidade > 5:
+        raise Erro("Um <incluir> está incluindo a si mesmo.")
+
+    def trocar(m):
+        if m.group(0).startswith("<!--"):
+            return m.group(0)
+        attrs = dict(ATRIBUTO.findall(m.group(1)))
+        if "src" not in attrs:
+            raise Erro("<incluir> sem o atributo src.")
+        try:
+            parte = ler_arquivo_site(attrs["src"])
+        except FileNotFoundError:
+            raise Erro(f"Arquivo do <incluir> não encontrado: src/{attrs['src']}")
+        parte = COMENTARIO.sub("", parte).strip()       # os comentários de ajuda do arquivo incluído não vão para a página
+        valores = {**attrs, "conteudo": (m.group(2) or "").strip()}
+        parte = MARCADOR.sub(lambda x: x.group(0) if x.group(1).startswith("site.") or x.group(1) == "ano"
+                             else valores.get(x.group(1), ""), parte)
+        return juntar_inclusoes(parte, profundidade + 1)
+
+    return INCLUIR.sub(trocar, html)
+
+
+def montar_html(arquivo, textos):
+    html = juntar_inclusoes(ler_arquivo_site(arquivo))
+
+    def trocar(m):
+        nome = m.group(1)
+        if nome == "ano":
+            return str(hoje().year)
+        if nome.startswith("site.") and nome[5:] in textos:
+            return html_escape(textos[nome[5:]])
+        return ""
+    return MARCADOR.sub(trocar, html)
 
 
 # =====================================================================
@@ -1223,10 +1646,31 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/"):
             return self.api("GET")
-        caminho = urlparse(self.path).path.rstrip("/")
-        if caminho in ("/dono", "/barbeiro"):
-            self.path = caminho + ".html"
+        caminho = urlparse(self.path).path.rstrip("/") or "/"
+        arquivo = PAGINAS.get(caminho) or (caminho.lstrip("/") if caminho.endswith(".html") else None)
+        if arquivo:
+            return self.pagina(arquivo)
         return super().do_GET()
+
+    def list_directory(self, path):          # não mostra a lista de arquivos das pastas
+        self.send_error(404, "Página não encontrada")
+
+    def pagina(self, arquivo):
+        """Monta uma página HTML: junta os <incluir> (header, footer, seções) e coloca os textos do banco."""
+        try:
+            with conectar() as db:
+                textos = textos_site(db)
+            html = montar_html(arquivo, textos)
+        except FileNotFoundError:
+            return self.send_error(404, "Página não encontrada")
+        except Erro as e:
+            return self.send_error(500, str(e))
+        corpo = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
 
     def do_POST(self):
         self.api("POST")
@@ -1340,8 +1784,8 @@ def popular(db):
         db.execute("INSERT INTO funcionamento (dia_semana, aberto, abre, fecha) VALUES (?, ?, ?, ?)", (i, int(aberto), abre, fecha))
     db.execute("INSERT INTO configuracoes (chave, valor) VALUES ('intervalo', '30'), ('dias_para_agendar', '14')")
     # chave Pix de EXEMPLO — o dono troca pela chave real no painel (Funcionamento → Pagamentos)
-    db.execute("""INSERT INTO configuracoes (chave, valor) VALUES ('pix_chave', '123e4567-e89b-12d3-a456-426614174000'),
-                  ('pix_recebedor', 'Barbearia Real'), ('pix_cidade', 'Sao Paulo')""")
+    db.execute("""INSERT INTO configuracoes (chave, valor) VALUES ('pix_chave', ?),
+                  ('pix_recebedor', 'Barbearia Real'), ('pix_cidade', 'Sao Paulo')""", (CHAVE_PIX_EXEMPLO,))
     criar_exemplos(db, davi)
 
 
@@ -1445,6 +1889,23 @@ def iniciar_banco(resetar=False):
         if db.execute("SELECT COUNT(*) FROM donos").fetchone()[0] == 0:
             popular(db)
             print("Banco criado com os dados de teste.")
+        garantir_padroes(db)
+
+
+def garantir_padroes(db):
+    """Coloca no banco os textos e listas que ainda não estão lá (não muda o que o dono já salvou)."""
+    for chave, _, padrao, _ in SITE_TEXTOS:
+        db.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES (?, ?)", ("site_" + chave, padrao))
+    db.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('max_parcelas', '3')")
+    db.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('categorias_despesa', ?)",
+               (json.dumps(CATEGORIAS_DESPESA_PADRAO, ensure_ascii=False),))
+    # as listas só são criadas uma vez: se o dono apagar todas, continuam apagadas
+    if cfg_valor(db, "site_itens_criados", "") != "1":
+        if not db.execute("SELECT 1 FROM site_itens LIMIT 1").fetchone():
+            for ordem, (secao, icone, titulo, txt) in enumerate(SITE_ITENS_PADRAO):
+                db.execute("INSERT INTO site_itens (secao, ordem, icone, titulo, texto) VALUES (?, ?, ?, ?, ?)",
+                           (secao, ordem, icone, titulo, txt))
+        db.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('site_itens_criados', '1')")
 
 
 def migrar(db):
@@ -1465,6 +1926,9 @@ def migrar(db):
     adicionar("barbeiros", "foto", "BLOB")
     adicionar("barbeiros", "foto_tipo", "TEXT")
     adicionar("barbeiros", "foto_versao", "TEXT")
+    adicionar("barbeiros", "email", "TEXT NOT NULL DEFAULT ''")
+    adicionar("donos", "email", "TEXT NOT NULL DEFAULT ''")
+    adicionar("donos", "telefone", "TEXT NOT NULL DEFAULT ''")
     if adicionar("pagamentos_clientes", "provedor", "TEXT NOT NULL DEFAULT 'teste'"):
         db.execute("UPDATE pagamentos_clientes SET provedor = 'pix_manual' WHERE metodo = 'pix'")
     adicionar("pagamentos_clientes", "provedor_id", "TEXT")
@@ -1504,8 +1968,24 @@ def ip_da_rede():
         return None
 
 
+def redefinir_senha_dono():
+    """python servidor/servidor.py --senha-dono NOVA_SENHA  (para quando o dono esquece e não tem e-mail/WhatsApp cadastrado)"""
+    i = sys.argv.index("--senha-dono")
+    nova = sys.argv[i + 1] if len(sys.argv) > i + 1 else ""
+    if len(nova) < SENHA_MINIMA["dono"]:
+        print(f"Use: python servidor/servidor.py --senha-dono NOVA_SENHA  (pelo menos {SENHA_MINIMA['dono']} caracteres)")
+        return
+    with conectar() as db:
+        r = db.execute("SELECT id, usuario FROM donos ORDER BY id LIMIT 1").fetchone()
+        db.execute("UPDATE donos SET senha_hash = ? WHERE id = ?", (gerar_hash(nova), r["id"]))
+        db.execute("DELETE FROM sessoes WHERE tipo = 'dono'")
+    print(f"Senha do dono trocada. Entre com o usuário \"{r['usuario']}\" e a senha nova.")
+
+
 def main():
     iniciar_banco(resetar="--resetar" in sys.argv)
+    if "--senha-dono" in sys.argv:
+        return redefinir_senha_dono()
     na_rede = "--rede" in sys.argv
     servidor = ThreadingHTTPServer(("0.0.0.0" if na_rede else "127.0.0.1", PORTA), Handler)
     print()

@@ -1,0 +1,54 @@
+<!--
+  MÓDULO "ESQUECI MINHA SENHA" — janela que manda um código por e-mail ou WhatsApp.
+  Para usar numa página de login:
+    <incluir src="recuperar-senha/recuperar-senha.html" tipo="cliente" campo="entrarTel" rotulo="WhatsApp" minimo="4"></incluir>
+      tipo   = cliente, barbeiro ou dono
+      campo  = id do campo de login da página (o que a pessoa já digitou vem preenchido)
+      rotulo = nome do campo de login (WhatsApp ou Usuário)
+      minimo = tamanho mínimo da senha nova
+  Qualquer botão com o atributo data-esqueci abre a janela.
+-->
+<link rel="stylesheet" href="/recuperar-senha/recuperar-senha.css">
+<div class="rec-fundo" id="recuperarSenha" data-tipo="{{tipo}}" data-campo="{{campo}}" hidden>
+  <div class="rec-caixa" role="dialog" aria-modal="true" aria-labelledby="recTitulo">
+    <button type="button" class="rec-fechar" data-rec-fechar aria-label="Fechar">✕</button>
+    <div class="logo">🔑</div>
+    <h2 id="recTitulo">Esqueci minha senha</h2>
+
+    <!-- Passo 1: pedir o código -->
+    <form class="form" id="recPasso1">
+      <p class="sub">Vamos mandar um código de 6 números para você criar uma senha nova.</p>
+      <label>{{rotulo}}
+        <input id="recLogin" required autocomplete="username">
+      </label>
+      <fieldset class="rec-canais">
+        <legend class="sub">Receber o código por</legend>
+        <label class="rec-canal"><input type="radio" name="recCanal" value="whatsapp" checked> 💬 WhatsApp</label>
+        <label class="rec-canal"><input type="radio" name="recCanal" value="email"> ✉️ E-mail</label>
+      </fieldset>
+      <p class="sub">O código vai para o WhatsApp ou o e-mail cadastrado na sua conta.</p>
+      <p class="erro" id="recErro1"></p>
+      <button type="submit" class="btn-principal">Enviar código</button>
+    </form>
+
+    <!-- Passo 2: digitar o código e a senha nova -->
+    <form class="form" id="recPasso2" hidden>
+      <p class="sub" id="recEnviado"></p>
+      <p class="aviso-teste" id="recModoTeste" hidden>🧪 <strong>Modo de teste:</strong> o envio ainda não foi configurado pelo dono.
+        O código aparece na janela preta do servidor.</p>
+      <label>Código
+        <input id="recCodigo" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" class="rec-codigo">
+      </label>
+      <label>Senha nova
+        <input type="password" id="recNova" required minlength="{{minimo}}" autocomplete="new-password" placeholder="Mínimo {{minimo}} caracteres">
+      </label>
+      <label>Repita a senha nova
+        <input type="password" id="recNova2" required autocomplete="new-password">
+      </label>
+      <p class="erro" id="recErro2"></p>
+      <button type="submit" class="btn-principal">Criar senha nova</button>
+      <button type="button" class="link" id="recVoltar">Não chegou? Pedir outro código</button>
+    </form>
+  </div>
+</div>
+<script src="/recuperar-senha/recuperar-senha.js" defer></script>

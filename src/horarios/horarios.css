@@ -1,0 +1,9 @@
+/* HORÁRIOS — dias e horários de funcionamento */
+.horarios-home { max-width: 640px; margin: 0 auto; display: grid; gap: 8px; }
+.dia-home {
+  display: flex; justify-content: space-between; padding: 14px 20px; border-radius: 12px;
+  background: var(--cartao); border: 1px solid var(--borda);
+}
+.dia-home.fechado { opacity: .55; }
+.dia-home.hoje { border-color: var(--ouro); background: var(--ouro-fundo); }
+.dia-home.hoje span::after { content: " · hoje"; color: var(--ouro-texto); font-weight: 700; }

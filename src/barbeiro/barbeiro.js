@@ -4,25 +4,14 @@
 //  A conta é criada pelo dono (Barbeiros → Adicionar / Editar).
 // =====================================================================
 
-let FUNCIONAMENTO = { intervalo: 30, semana: [], datasFechadas: [] }; // vem do servidor
+// FUNCIONAMENTO (dias e horários da barbearia) está em compartilhado/config.js e é preenchido em recarregar()
 let tokenBarb = ler("tokenBarbeiro", null);
 let dados = null;          // resposta de /api/barbeiro/dados
 let abaBarb = "inicio";
 let diaAgenda = chaveDia(new Date());
 let mesGanhos = chaveDia(new Date()).slice(0, 7);
 
-const hojeIso = () => chaveDia(new Date());
-const soma = (lista, f) => lista.reduce((s, x) => s + (Number(f(x)) || 0), 0);
-const porHora = (a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora);
-const fmtTel = (t) => {
-  const d = soDigitos(t);
-  return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d;
-};
-const linkZap = (t) => soDigitos(t).length >= 10 ? `<a href="https://wa.me/55${soDigitos(t)}" target="_blank" rel="noopener">WhatsApp</a>` : "";
-const vazio = (t) => `<p class="sub" style="padding:12px 0">${t}</p>`;
 const ganhoDe = (a) => (a.status === "atendido" ? a.comissaoValor || 0 : a.status === "confirmado" ? a.comissaoPrevista || 0 : 0);
-const chips = (a) => a.produtos?.length
-  ? `<div class="chips">${a.produtos.map((p) => `<span class="chip">📦 ${esc(p.nome)} ×${p.qtd}</span>`).join("")}</div>` : "";
 const pagamentoDoRepasse = (id) => dados.pagamentos.find((p) => p.id === id);
 
 // ================= Login =================
@@ -76,11 +65,12 @@ const ABAS_BARB = {
   agenda: ["📅", "Minha agenda"],
   ganhos: ["💰", "Meus ganhos"],
   perfil: ["👤", "Meu perfil"],
+  config: ["⚙️", "Configurações"],
 };
 function render() {
   $("navBarb").innerHTML = Object.entries(ABAS_BARB).map(([k, [ic, nome]]) =>
     `<button class="nav-item ${k === abaBarb ? "ativo" : ""}" data-aba="${k}"><span>${ic}</span>${nome}</button>`).join("");
-  ({ inicio: renderInicioBarb, agenda: renderAgendaBarb, ganhos: renderGanhos, perfil: renderPerfil })[abaBarb]();
+  ({ inicio: renderInicioBarb, agenda: renderAgendaBarb, ganhos: renderGanhos, perfil: renderPerfil, config: renderConfigBarb })[abaBarb]();
 }
 $("navBarb").addEventListener("click", (e) => {
   const b = e.target.closest("[data-aba]");
@@ -95,6 +85,7 @@ $("conteudoBarb").addEventListener("click", (e) => {
     const d = dataDe(diaAgenda); d.setDate(d.getDate() + (acao === "diaAnt" ? -1 : 1)); diaAgenda = chaveDia(d); renderAgendaBarb();
   }
   if (acao === "hoje") { diaAgenda = hojeIso(); renderAgendaBarb(); }
+  if (acao === "verDia") { diaAgenda = b.dataset.dia; renderAgendaBarb(); window.scrollTo(0, 0); }
 });
 $("conteudoBarb").addEventListener("change", (e) => {
   if (e.target.id === "escolheDia" && e.target.value) { diaAgenda = e.target.value; renderAgendaBarb(); }
@@ -114,7 +105,7 @@ function linhaAtendimento(a, comData) {
       <div class="ag-hora">${a.hora}${comData ? `<small>${dataCurta(a.dia)}</small>` : ""}</div>
       <div class="ag-info">
         <div><strong>${esc(a.cliente)}</strong> <span class="sub">· ${esc(a.servico)} (${a.duracao} min)</span></div>
-        ${chips(a)}
+        ${chipsProdutos(a)}
         ${a.obs ? `<p class="sub">📝 ${esc(a.obs)}</p>` : ""}
         <p class="sub">${situacao} ${a.telefone ? `· ${linkZap(a.telefone)}` : ""}</p>
       </div>
@@ -136,7 +127,7 @@ function renderInicioBarb() {
   $("conteudoBarb").innerHTML = `
     <div class="cab">
       <div class="boas-vindas" style="margin:0">
-        ${b.foto ? `<img class="avatar grande foto" src="${esc(b.foto)}" alt="">` : `<span class="avatar grande">${esc(b.nome[0])}</span>`}
+        ${fotoOuInicial(b, "grande")}
         <div><p class="sub">${h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"} 💈</p><h1>Olá, ${esc(b.nome.split(" ")[0])}!</h1></div>
       </div>
       <p class="sub">${dataBonita(hoje)}${folgaHoje ? " · hoje é sua folga 🌴" : ""}</p>
@@ -160,7 +151,7 @@ function renderInicioBarb() {
           ${proximo.obs ? `<p class="sub">📝 ${esc(proximo.obs)}</p>` : ""}
         </div>
       </div>
-      ${proximo.produtos?.length ? `<p class="entrega">🎁 Entregar para o cliente:</p>${chips(proximo)}` : ""}
+      ${proximo.produtos?.length ? `<p class="entrega">🎁 Entregar para o cliente:</p>${chipsProdutos(proximo)}` : ""}
     </div>` : ""}
 
     <div class="colunas">
@@ -171,7 +162,7 @@ function renderInicioBarb() {
       <div>
         <div class="bloco">
           <h2>🎁 Produtos para entregar hoje</h2>
-          ${entregar.length ? entregar.map((a) => `<div class="ag-linha"><div class="ag-hora">${a.hora}</div><div class="ag-info"><strong>${esc(a.cliente)}</strong>${chips(a)}</div></div>`).join("")
+          ${entregar.length ? entregar.map((a) => `<div class="ag-linha"><div class="ag-hora">${a.hora}</div><div class="ag-info"><strong>${esc(a.cliente)}</strong>${chipsProdutos(a)}</div></div>`).join("")
             : vazio("Nenhum produto para entregar hoje.")}
         </div>
         <div class="bloco">
@@ -211,10 +202,10 @@ function renderAgendaBarb() {
       </div>
       <div class="bloco">
         <h2>Próximos dias</h2>
-        ${Object.keys(porDia).length ? Object.entries(porDia).slice(0, 14).map(([dia, n]) => `
+        ${Object.keys(porDia).length ? juntarVerMais("barbProximos", Object.entries(porDia).map(([dia, n]) => `
           <div class="ag-linha"><div class="ag-info"><strong>${dataBonita(dia)}</strong>
             <span class="sub">${n} cliente(s) · ${real(soma(proximos.filter((a) => a.dia === dia), ganhoDe))} previsto</span></div>
-            <button class="btn-peq" onclick="diaAgenda='${dia}';renderAgendaBarb()">Ver</button></div>`).join("")
+            <button class="btn-peq" data-acao="verDia" data-dia="${dia}">Ver</button></div>`), 5)
           : vazio("Nenhum agendamento nos próximos dias.")}
       </div>
     </div>`;
@@ -227,6 +218,14 @@ function renderGanhos() {
   const recebidoMes = doMes.filter((a) => a.repasseId);
   const pendentes = ags.filter((a) => !a.repasseId).sort(porHora);
   const nomeMes = dataDe(mesGanhos + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  // listas longas: mostra os primeiros e o resto fica no "Ver mais"
+  const vmAtend = verMais("barbAtend", doMes.map((a) => `<tr>
+            <td>${dataCurta(a.dia)}<br><span class="sub">${a.hora}</span></td>
+            <td>${esc(a.servico)}<br><span class="sub">${esc(a.cliente)}</span></td>
+            <td class="num">${real(a.total)}</td>
+            <td class="num"><strong>${real(a.comissaoValor)}</strong></td>
+            <td>${a.repasseId ? `<span class="pg pago">✓ Pago ${dataCurta(pagamentoDoRepasse(a.repasseId)?.data || a.dia)}</span>` : `<span class="pg pendente">A receber</span>`}</td>
+          </tr>`), 8);
 
   $("conteudoBarb").innerHTML = `
     <div class="cab">
@@ -246,20 +245,14 @@ function renderGanhos() {
         <h2>Atendimentos do mês</h2>
         ${doMes.length ? `<div class="tabela-wrap"><table>
           <tr><th>Data</th><th>Atendimento</th><th class="num">Valor</th><th class="num">Você ganha</th><th>Situação</th></tr>
-          ${doMes.map((a) => `<tr>
-            <td>${dataCurta(a.dia)}<br><span class="sub">${a.hora}</span></td>
-            <td>${esc(a.servico)}<br><span class="sub">${esc(a.cliente)}</span></td>
-            <td class="num">${real(a.total)}</td>
-            <td class="num"><strong>${real(a.comissaoValor)}</strong></td>
-            <td>${a.repasseId ? `<span class="pg pago">✓ Pago ${dataCurta(pagamentoDoRepasse(a.repasseId)?.data || a.dia)}</span>` : `<span class="pg pendente">A receber</span>`}</td>
-          </tr>`).join("")}
-        </table></div>` : vazio("Nenhum atendimento neste mês.")}
+          ${vmAtend.itens}
+        </table></div>${vmAtend.botao}` : vazio("Nenhum atendimento neste mês.")}
       </div>
       <div class="bloco">
         <h2>Pagamentos recebidos</h2>
-        ${dados.pagamentos.length ? dados.pagamentos.map((p) => `
+        ${dados.pagamentos.length ? juntarVerMais("barbPagamentos", dados.pagamentos.map((p) => `
           <div class="ag-linha"><div class="ag-info"><strong>${real(p.valor)}</strong>
-            <span class="sub">${dataCurta(p.data)} · ${esc(p.forma)} · ${dados.agendamentos.filter((a) => a.repasseId === p.id).length} atendimento(s)${p.obs ? ` · ${esc(p.obs)}` : ""}</span></div></div>`).join("")
+            <span class="sub">${dataCurta(p.data)} · ${esc(p.forma)} · ${dados.agendamentos.filter((a) => a.repasseId === p.id).length} atendimento(s)${p.obs ? ` · ${esc(p.obs)}` : ""}</span></div></div>`), 5)
           : vazio("Nenhum pagamento ainda.")}
       </div>
     </div>`;
@@ -273,7 +266,7 @@ function renderPerfil() {
     <div class="colunas">
       <div class="bloco">
         <div class="foto-campo" style="border:none">
-          ${b.foto ? `<img class="avatar enorme foto" src="${esc(b.foto)}" alt="">` : `<span class="avatar enorme">${esc(b.nome[0])}</span>`}
+          ${fotoOuInicial(b, "enorme")}
           <h2 style="margin:0">${esc(b.nome)}</h2>
           <p class="sub">${esc(b.especialidade || "Barbeiro")}</p>
         </div>
@@ -287,25 +280,31 @@ function renderPerfil() {
         <p class="sub" style="margin-top:10px">Para mudar foto, comissão, folga ou chave Pix, fale com o dono.</p>
       </div>
       <div class="bloco">
-        <h2>Trocar minha senha</h2>
-        <form class="form" id="formSenhaBarb">
-          <label>Senha atual<input type="password" id="senhaAtualB" required autocomplete="current-password"></label>
-          <label>Nova senha<input type="password" id="senhaNovaB" required minlength="4" autocomplete="new-password"></label>
-          <label>Repita a nova senha<input type="password" id="senhaNovaB2" required autocomplete="new-password"></label>
-          <button class="btn-principal">Trocar senha</button>
-        </form>
+        <h2>Senha e e-mail</h2>
+        <p class="sub" style="margin-bottom:12px">Para trocar a senha ou cadastrar um e-mail de recuperação, vá em Configurações.</p>
+        <button class="btn-peq ouro" data-acao="irAba" data-aba="config">⚙️ Abrir configurações</button>
       </div>
     </div>`;
-  $("formSenhaBarb").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if ($("senhaNovaB").value !== $("senhaNovaB2").value) { avisar("As senhas novas não são iguais."); return; }
-    try {
-      await api("POST", "/api/barbeiro/senha", { atual: $("senhaAtualB").value, nova: $("senhaNovaB").value }, tokenBarb);
-      e.target.reset();
-      avisar("Senha trocada!");
-    } catch (er) { falhou(er); }
+}
+
+// ================= Configurações =================
+function renderConfigBarb() {
+  const b = dados.barbeiro;
+  $("conteudoBarb").innerHTML = `<div class="cab"><h1>Configurações</h1></div><div id="configBarb"></div>`;
+  desenharConfiguracoes($("configBarb"), {
+    login: fmtTel(b.telefone), loginRotulo: "WhatsApp", loginBruto: b.telefone,
+    dados: { email: b.email }, campos: ["email"], minimo: 4,
+    salvarDados: async (d) => {
+      try { await api("PUT", "/api/barbeiro/eu", d, tokenBarb); await recarregar(); avisar("E-mail salvo."); renderConfigBarb(); }
+      catch (e) { falhou(e); }
+    },
+    trocarSenha: async (atual, nova) => {
+      try { await api("POST", "/api/barbeiro/senha", { atual, nova }, tokenBarb); avisar("Senha trocada!"); }
+      catch (e) { falhou(e); return false; }
+    },
   });
 }
+document.addEventListener("barbearia:senha-recuperada", () => { if (tokenBarb) sairBarbeiro(); });
 
 // ================= Início do app =================
 mostrarTela("telaLoginBarbeiro");

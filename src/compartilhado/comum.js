@@ -1,4 +1,7 @@
-// ===== Funções usadas tanto pelo app do cliente quanto pelo painel do dono =====
+// =====================================================================
+//  FUNÇÕES COMPARTILHADAS — usadas por todas as páginas (site, cliente, dono, barbeiro)
+//  Carregue este arquivo primeiro, no <head> da página.
+// =====================================================================
 
 const $ = (id) => document.getElementById(id);
 const real = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -14,6 +17,33 @@ function chaveDia(d) {
 const dataDe = (iso) => new Date(iso + "T12:00");
 const dataBonita = (iso) => dataDe(iso).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 const dataCurta = (iso) => dataDe(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "");
+const hojeIso = () => chaveDia(new Date());
+const porHora = (a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora);
+const soma = (lista, f) => lista.reduce((s, x) => s + (Number(f(x)) || 0), 0);
+
+function fmtTel(t) {
+  const d = soDigitos(t);
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return d || "—";
+}
+const linkZap = (t, texto = "WhatsApp") =>
+  soDigitos(t).length >= 10 ? `<a href="https://wa.me/55${soDigitos(t)}" target="_blank" rel="noopener">${texto}</a>` : "";
+
+// ===== Pedaços de tela usados em vários lugares =====
+const vazio = (txt) => `<p class="sub" style="padding:12px 0">${txt}</p>`;
+
+function chipsProdutos(a) {
+  if (!a.produtos?.length) return "";
+  return `<div class="chips">${a.produtos.map((p) => `<span class="chip">📦 ${esc(p.nome)} ×${p.qtd}</span>`).join("")}</div>`;
+}
+
+// Foto do barbeiro (ou a inicial do nome, se ele não tiver foto)
+function fotoOuInicial(b, classe = "") {
+  return b.foto
+    ? `<img class="avatar ${classe} foto" src="${esc(b.foto)}" alt="Foto de ${esc(b.nome)}" loading="lazy">`
+    : `<span class="avatar ${classe}">${esc((b.nome || "?")[0])}</span>`;
+}
 
 function ler(chave, padrao) {
   try { return JSON.parse(localStorage.getItem(chave)) ?? padrao; } catch { return padrao; }
@@ -50,13 +80,18 @@ if (location.protocol === "file:") {
         <h2>Ligue o servidor primeiro</h2>
         <p>Abra o terminal na pasta do projeto e rode:</p>
         <pre style="background:#000;padding:12px;border-radius:8px">python servidor/servidor.py</pre>
-        <p>Depois acesse <b>http://localhost:8000</b> (cliente) ou <b>http://localhost:8000/dono</b> (dono).</p>
+        <p>Depois acesse <b>http://localhost:8000</b>. O servidor é quem junta o header, o footer e os textos do banco em cada página.</p>
       </div>`;
   });
 }
 
 function avisar(texto) {
-  const el = $("aviso");
+  let el = $("aviso");
+  if (!el) {   // a página não tem a caixa de aviso: cria uma
+    el = document.createElement("div");
+    el.className = "aviso"; el.id = "aviso";
+    document.body.appendChild(el);
+  }
   el.textContent = texto;
   el.classList.add("mostrar");
   clearTimeout(avisar.t);
@@ -65,9 +100,6 @@ function avisar(texto) {
 
 function mostrarTela(id) {
   document.querySelectorAll(".tela").forEach((t) => (t.hidden = t.id !== id));
-  // o botão de tema flutuante só aparece nas telas sem barra no topo (login, sucesso)
-  const flutuante = document.querySelector(".tema-flutuante");
-  if (flutuante) flutuante.hidden = !document.getElementById(id)?.classList.contains("tela-login");
   window.scrollTo(0, 0);
 }
 
@@ -83,6 +115,12 @@ function trocarTema() {
 }
 document.addEventListener("click", (e) => {
   if (e.target.closest("[data-tema]")) trocarTema();
+});
+// Se a página não tem o header (que traz o botão ☀️/🌙), coloca um botão flutuante no canto
+document.addEventListener("DOMContentLoaded", () => {
+  if (document.querySelector("[data-tema]")) return;
+  document.body.insertAdjacentHTML("beforeend",
+    `<button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>`);
 });
 
 // ===== Regras da agenda =====
@@ -136,3 +174,33 @@ function statusDe(a) {
   fim.setMinutes(fim.getMinutes() + a.duracao);
   return fim < new Date() ? "concluido" : "agendado";
 }
+
+// ===== "Ver mais": listas longas mostram só os primeiros itens =====
+// Uso:  const h = verMais("historico", listaDeHtml, 5);
+//       el.innerHTML = h.itens + h.botao;      (em tabelas: <table>${h.itens}</table>${h.botao})
+// Os itens a mais ficam escondidos; o botão mostra/esconde sem redesenhar a tela.
+// A escolha fica guardada enquanto a página estiver aberta.
+const _verMaisAbertos = new Set();
+function verMais(chave, itens, limite = 5) {
+  const aberto = _verMaisAbertos.has(chave);
+  const marcados = itens.map((html, i) => i < limite ? html
+    : html.replace(/^(\s*<[a-zA-Z]+)/, `$1 data-vm="${chave}"${aberto ? "" : " hidden"}`));
+  const resto = itens.length - limite;
+  const botao = resto > 0
+    ? `<button type="button" class="btn-ver-mais" data-ver-mais="${chave}" data-resto="${resto}" aria-expanded="${aberto}">${aberto ? "Ver menos ▲" : `Ver mais (${resto}) ▼`}</button>`
+    : "";
+  return { itens: marcados.join(""), botao };
+}
+// Atalho para listas que não são tabela: devolve os itens e o botão juntos
+const juntarVerMais = (chave, itens, limite = 5) => { const v = verMais(chave, itens, limite); return v.itens + v.botao; };
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ver-mais]");
+  if (!b) return;
+  const chave = b.dataset.verMais;
+  const abrir = !_verMaisAbertos.has(chave);
+  if (abrir) _verMaisAbertos.add(chave); else _verMaisAbertos.delete(chave);
+  document.querySelectorAll(`[data-vm="${chave}"]`).forEach((el) => (el.hidden = !abrir));
+  b.textContent = abrir ? "Ver menos ▲" : `Ver mais (${b.dataset.resto}) ▼`;
+  b.setAttribute("aria-expanded", String(abrir));
+});

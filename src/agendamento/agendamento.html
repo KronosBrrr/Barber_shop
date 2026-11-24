@@ -1,0 +1,27 @@
+<!--
+  MÓDULO AGENDAMENTO — tela do passo a passo (faz parte da área do cliente).
+  Usado em cliente/cliente.html:  <incluir src="agendamento/agendamento.html"></incluir>
+-->
+<link rel="stylesheet" href="/agendamento/agendamento.css">
+<section class="tela" id="telaAgendar" hidden>
+  <div class="barra-passo">
+    <button class="btn-voltar" id="btnFecharAgenda" aria-label="Voltar ao início">✕</button>
+    <h1>Novo agendamento</h1>
+  </div>
+
+  <div class="etapas" id="etapas"></div>
+
+  <main class="conteudo">
+    <div id="conteudoPasso"></div>
+  </main>
+
+  <footer class="rodape-agenda">
+    <div class="total-parcial">
+      <span class="sub">Total</span>
+      <strong id="totalParcial">R$ 0,00</strong>
+    </div>
+    <button class="btn-secundario" id="btnAnterior">Voltar</button>
+    <button class="btn-principal" id="btnProximo">Continuar</button>
+  </footer>
+</section>
+<script src="/agendamento/agendamento.js" defer></script>

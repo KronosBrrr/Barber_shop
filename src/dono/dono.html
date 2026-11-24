@@ -3,19 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Barbearia Real — Painel do Dono</title>
+  <title>{{site.nome}} — Painel do Dono</title>
   <script>try { var t = JSON.parse(localStorage.getItem("tema")); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="dono.css">
+  <link rel="stylesheet" href="/compartilhado/base.css">
+  <link rel="stylesheet" href="/compartilhado/painel.css">
+  <link rel="stylesheet" href="/dono/dono.css">
+  <script src="/compartilhado/comum.js" defer></script>
+  <script src="/compartilhado/config.js" defer></script>
 </head>
 <body>
 
-  <button class="btn-tema tema-flutuante" data-tema type="button" aria-label="Alternar modo claro e escuro">
-    <span class="sol">☀️</span><span class="lua">🌙</span>
-  </button>
+  <!-- Cabeçalho (apague esta linha para tirar o header desta página) -->
+  <incluir src="componentes/header/header.html" subtitulo="Painel do dono">
+    <a class="nav-link" href="/">Ver o site</a>
+  </incluir>
 
   <!-- ===== LOGIN DO DONO ===== -->
   <section class="tela tela-login" id="telaLoginDono">
@@ -31,6 +35,7 @@
         <label>Senha
           <input type="password" id="senhaDono" required autocomplete="current-password">
         </label>
+        <button type="button" class="link esqueci" data-esqueci>Esqueci minha senha</button>
         <p class="erro" id="erroDono"></p>
         <button type="submit" class="btn-principal">Entrar</button>
       </form>
@@ -40,10 +45,8 @@
   <!-- ===== PAINEL (menu do lado direito) ===== -->
   <div class="tela app-dono" id="telaDono" hidden>
     <aside class="menu">
-      <div class="marca">👑 Barbearia Real <small>Painel do dono</small></div>
       <nav id="nav" aria-label="Menu do painel"></nav>
       <div class="menu-rodape">
-        <button class="btn-tema" data-tema type="button" aria-label="Alternar modo claro e escuro"><span class="sol">☀️</span><span class="lua">🌙</span></button>
         <button class="btn-sair" id="sairDono">Sair</button>
       </div>
     </aside>
@@ -65,11 +68,25 @@
     </form>
   </div>
 
+  <incluir src="configuracoes/configuracoes.html"></incluir>
+  <incluir src="recuperar-senha/recuperar-senha.html" tipo="dono" campo="usuarioDono" rotulo="Usuário" minimo="6"></incluir>
+
+  <!-- Rodapé (apague esta linha para tirar o footer desta página) -->
+  <incluir src="componentes/footer/footer.html"></incluir>
+
   <div class="aviso" id="aviso"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-  <script src="comum.js"></script>
-  <script src="dados.js"></script>
-  <script src="dono.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" defer></script>
+  <!-- Núcleo do painel (dados, login, janela, menu) e depois uma aba por arquivo -->
+  <script src="/dono/dono.js" defer></script>
+  <script src="/dono/abas/painel.js" defer></script>
+  <script src="/dono/abas/agenda.js" defer></script>
+  <script src="/dono/abas/barbeiros.js" defer></script>
+  <script src="/dono/abas/financeiro.js" defer></script>
+  <script src="/dono/abas/funcionamento.js" defer></script>
+  <script src="/dono/abas/catalogo.js" defer></script>
+  <script src="/dono/abas/clientes.js" defer></script>
+  <script src="/dono/abas/site.js" defer></script>
+  <script src="/dono/abas/configuracoes.js" defer></script>
 </body>
 </html>

@@ -1,0 +1,14 @@
+/* =====================================================================
+   FOOTER (rodapé)
+   ===================================================================== */
+.rodape-site {
+  max-width: 1180px; margin: 40px auto 0; padding: 40px 20px 36px;
+  display: grid; justify-items: center; gap: 12px; text-align: center;
+  border-top: 1px solid var(--borda);
+}
+.links-rodape { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+.links-rodape a { color: var(--suave); text-decoration: none; font-weight: 500; }
+.links-rodape a:hover { color: var(--ouro-texto); }
+
+/* no agendamento a barra de baixo é fixa: dá espaço para ela não cobrir o rodapé */
+body:has(#telaAgendar:not([hidden])) .rodape-site { padding-bottom: 110px; }

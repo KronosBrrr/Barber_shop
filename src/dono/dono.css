@@ -1,0 +1,62 @@
+/* PAINEL DO DONO — partes só do dono (o layout comum está em compartilhado/painel.css) */
+
+/* ---------- Barbeiros ---------- */
+.cards-barb { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.card-barb { background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); padding: 18px; display: grid; gap: 12px; }
+.card-barb .topo-b { display: flex; gap: 12px; align-items: center; }
+.card-barb .dados { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.card-barb .dados div { background: var(--cartao-2); border-radius: 10px; padding: 8px 10px; font-size: .9rem; }
+.card-barb .dados span { display: block; font-size: .7rem; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; }
+
+/* ---------- Funcionamento ---------- */
+.semana { display: grid; gap: 8px; }
+.semana-linha {
+  display: grid; grid-template-columns: 130px 1fr 1fr; gap: 10px; align-items: center;
+  padding: 10px 12px; border-radius: 10px; background: var(--cartao-2);
+}
+.semana-linha.fechado { opacity: .55; }
+.semana-linha input[type="time"] { padding: 8px; }
+.check { display: flex; align-items: center; gap: 8px; color: var(--texto); font-size: .95rem; cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--ouro); }
+.form-linha { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.form-linha label { flex: 1; min-width: 140px; }
+
+/* ---------- Barras simples ---------- */
+.barra-linha { display: grid; grid-template-columns: 140px 1fr 90px; gap: 10px; align-items: center; padding: 6px 0; font-size: .9rem; }
+.barra { height: 10px; border-radius: 999px; background: var(--cartao-2); overflow: hidden; }
+.barra i { display: block; height: 100%; background: var(--ouro-grad); border-radius: 999px; }
+
+/* ---------- Modal ---------- */
+.modal-fundo { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .6); display: grid; place-items: center; padding: 16px; }
+.modal {
+  width: 100%; max-width: 520px; max-height: calc(100vh - 32px); display: flex; flex-direction: column;
+  background: var(--cartao); border: 1px solid var(--borda-forte); border-radius: 20px; box-shadow: var(--sombra);
+}
+.modal-topo { display: flex; justify-content: space-between; align-items: center; padding: 18px 20px; border-bottom: 1px solid var(--borda); }
+.modal-topo h2 { margin: 0; font-size: 1.15rem; }
+.fechar { background: none; border: none; font-size: 1.2rem; color: var(--suave); }
+.modal-corpo { padding: 20px; overflow-y: auto; display: grid; gap: 14px; }
+.modal-corpo .dupla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal-acoes { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--borda); }
+.dias-check { display: flex; flex-wrap: wrap; gap: 6px; }
+.dias-check label { display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--cartao-2); color: var(--texto); cursor: pointer; }
+.dias-check input { width: auto; accent-color: var(--ouro); }
+
+@media (max-width: 720px) {
+  .semana-linha { grid-template-columns: 1fr 1fr; }
+  .semana-linha .check { grid-column: 1 / -1; }
+  .barra-linha { grid-template-columns: 100px 1fr 80px; }
+  .modal-corpo .dupla { grid-template-columns: 1fr; }
+}
+
+.dupla-cfg { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+@media (max-width: 860px) { .colunas[style] { grid-template-columns: 1fr !important; } }
+
+/* ---------- Página inicial (editor do site) ---------- */
+.grade-site { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.item-site { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--borda); }
+.item-site:last-child { border-bottom: none; }
+.item-site input { padding: 9px 12px; flex: 1; min-width: 0; }
+.item-site .icone-site { width: 64px; flex-shrink: 0; text-align: center; }
+.item-site .botoes { flex-shrink: 0; }
+@media (max-width: 720px) { .item-site { flex-wrap: wrap; } }

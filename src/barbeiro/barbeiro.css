@@ -1,0 +1,3 @@
+/* PAINEL DO BARBEIRO — o layout comum (menu, blocos, tabelas) está em compartilhado/painel.css */
+.foto-campo { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.cartao-proximo.bloco { margin-bottom: 16px; }

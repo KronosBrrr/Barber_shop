@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS donos (
   usuario     TEXT NOT NULL UNIQUE,
   nome        TEXT NOT NULL,
   senha_hash  TEXT NOT NULL,                 -- senha criptografada (nunca a senha pura)
+  email       TEXT NOT NULL DEFAULT '',      -- para recuperar a senha
+  telefone    TEXT NOT NULL DEFAULT '',      -- WhatsApp, para recuperar a senha
   criado_em   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -24,6 +26,20 @@ CREATE TABLE IF NOT EXISTS clientes (
   cpf         TEXT NOT NULL DEFAULT '',
   criado_em   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
+
+-- Códigos de "esqueci minha senha" (só guardamos o código criptografado)
+CREATE TABLE IF NOT EXISTS codigos_recuperacao (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo         TEXT NOT NULL CHECK (tipo IN ('cliente', 'dono', 'barbeiro')),
+  usuario_id   TEXT NOT NULL,
+  codigo_hash  TEXT NOT NULL,
+  canal        TEXT NOT NULL CHECK (canal IN ('email', 'whatsapp')),
+  criado_em    TEXT NOT NULL,
+  expira_em    TEXT NOT NULL,
+  tentativas   INTEGER NOT NULL DEFAULT 0,
+  usado        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_codigos_usuario ON codigos_recuperacao (tipo, usuario_id);
 
 -- Logins ativos (cada aparelho conectado tem um token)
 CREATE TABLE IF NOT EXISTS sessoes (
@@ -39,6 +55,7 @@ CREATE TABLE IF NOT EXISTS barbeiros (
   telefone           TEXT NOT NULL DEFAULT '',      -- também é o login do barbeiro
   senha_hash         TEXT,                          -- senha do painel do barbeiro (o dono cria)
   chave_pix          TEXT NOT NULL DEFAULT '',      -- para o dono pagar pelo site
+  email              TEXT NOT NULL DEFAULT '',      -- para recuperar a senha
   foto               BLOB,
   foto_tipo          TEXT,
   foto_versao        TEXT,
@@ -85,10 +102,21 @@ CREATE TABLE IF NOT EXISTS datas_fechadas (
   motivo  TEXT NOT NULL DEFAULT ''
 );
 
--- Outras configurações (intervalo entre horários, dias de antecedência...)
+-- Outras configurações: intervalo entre horários, dias de antecedência, parcelas, Pix,
+-- categorias de despesa e os textos da página inicial (chaves que começam com "site_")
 CREATE TABLE IF NOT EXISTS configuracoes (
   chave  TEXT PRIMARY KEY,
   valor  TEXT NOT NULL
+);
+
+-- Listas da página inicial: cartões do topo, diferenciais, passos e vantagens (o dono edita no painel)
+CREATE TABLE IF NOT EXISTS site_itens (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  secao   TEXT NOT NULL CHECK (secao IN ('destaque', 'diferencial', 'passo', 'vantagem')),
+  ordem   INTEGER NOT NULL DEFAULT 0,
+  icone   TEXT NOT NULL DEFAULT '',
+  titulo  TEXT NOT NULL DEFAULT '',
+  texto   TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS agendamentos (

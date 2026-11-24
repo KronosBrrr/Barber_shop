@@ -1,0 +1,95 @@
+<!--
+  MÓDULO PAGAMENTO — tela de Pix e cartão (faz parte da área do cliente).
+  Usado em cliente/cliente.html:  <incluir src="pagamento/pagamento.html"></incluir>
+  O QR code do Pix é desenhado pela biblioteca qrcode-generator (carregada abaixo).
+-->
+<link rel="stylesheet" href="/pagamento/pagamento.css">
+<section class="tela" id="telaPagamento" hidden>
+  <div class="barra-passo" style="max-width:520px">
+    <button class="btn-voltar" id="btnFecharPagamento" aria-label="Voltar ao início">✕</button>
+    <h1>Pagamento</h1>
+  </div>
+
+  <main class="conteudo" style="max-width:520px">
+    <div class="pagamento-caixa">
+      <div class="valor-grande">
+        <span class="sub" id="pagResumo"></span>
+        <strong id="pagValor">R$ 0,00</strong>
+      </div>
+
+      <div class="abas-pag" id="abasPag">
+        <button type="button" data-metodo="pix">⚡ Pix</button>
+        <button type="button" data-metodo="credito">💳 Crédito</button>
+        <button type="button" data-metodo="debito">💳 Débito</button>
+      </div>
+
+      <!-- Dados que o Mercado Pago pede (só aparecem quando ele está ligado) -->
+      <div class="form" id="dadosPagador" hidden>
+        <label>E-mail para o comprovante
+          <input type="email" id="pagEmail" autocomplete="email" placeholder="seuemail@exemplo.com">
+        </label>
+        <label id="campoCpf">CPF do dono do cartão
+          <input id="pagCpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
+        </label>
+      </div>
+
+      <!-- Pix -->
+      <div id="painelPix" class="form" hidden>
+        <button type="button" class="btn-principal" id="btnGerarPix" hidden>Gerar QR code do Pix</button>
+        <div class="qr" id="qrPix"><span class="sub">Gerando QR code...</span></div>
+        <p class="aguardando-pix" id="aguardandoPix" hidden><span class="girando"></span> Aguardando o pagamento... a tela atualiza sozinha.</p>
+        <ol class="passos-pix">
+          <li>Abra o app do seu banco e escolha <strong>Pix → Ler QR code</strong></li>
+          <li>Ou copie o código abaixo e use <strong>Pix copia e cola</strong></li>
+          <li>Confira o valor e o nome do recebedor: <strong id="pixRecebedor"></strong></li>
+        </ol>
+        <div class="copia-cola">
+          <input id="pixCodigo" readonly aria-label="Código Pix copia e cola">
+          <button type="button" class="btn-secundario" id="btnCopiarPix">Copiar</button>
+        </div>
+        <button type="button" class="btn-principal" id="btnJaPaguei">Já fiz o Pix</button>
+        <p class="sub">A barbearia confirma o recebimento e seu pedido aparece como pago.</p>
+      </div>
+
+      <!-- Cartão -->
+      <form id="formCartao" class="form form-cartao" hidden autocomplete="on">
+        <div class="cartao-visual" aria-hidden="true">
+          <div class="cv-topo"><span class="chip-cartao"></span><span class="cv-bandeira" id="cvBandeira">CARTÃO</span></div>
+          <div class="cv-numero" id="cvNumero">•••• •••• •••• ••••</div>
+          <div class="cv-rodape">
+            <div><small>Nome</small><span id="cvNome">SEU NOME</span></div>
+            <div><small>Validade</small><span id="cvValidade">MM/AA</span></div>
+          </div>
+        </div>
+
+        <label>Número do cartão
+          <input id="cartaoNumero" inputmode="numeric" autocomplete="cc-number" placeholder="0000 0000 0000 0000" maxlength="23" required>
+        </label>
+        <label>Nome impresso no cartão
+          <input id="cartaoNome" autocomplete="cc-name" placeholder="Como está no cartão" required>
+        </label>
+        <div class="dupla">
+          <label>Validade
+            <input id="cartaoValidade" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/AA" maxlength="5" required>
+          </label>
+          <label>CVV
+            <input id="cartaoCvv" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4" required>
+          </label>
+        </div>
+        <label id="campoParcelas">Parcelas
+          <select id="cartaoParcelas"></select>
+        </label>
+        <p class="aviso-teste" id="avisoTeste" hidden>
+          🧪 <strong>Modo de teste:</strong> nenhum valor é cobrado de verdade.
+          Use <strong>4111 1111 1111 1111</strong> (aprovado) ou <strong>4000 0000 0000 0002</strong> (recusado), qualquer validade futura e CVV 123.
+        </p>
+        <p class="erro" id="erroCartao"></p>
+        <button type="submit" class="btn-principal" id="btnPagarCartao">Pagar</button>
+        <p class="sub">🔒 Os dados do cartão não ficam guardados no sistema.</p>
+      </form>
+    </div>
+    <p style="text-align:center;margin-top:16px"><button type="button" class="btn-texto" id="btnPagarDepois">Pagar depois</button></p>
+  </main>
+</section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" defer></script>
+<script src="/pagamento/pagamento.js" defer></script>
